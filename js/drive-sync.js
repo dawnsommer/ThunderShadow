@@ -71,6 +71,10 @@
       include_granted_scopes: true,
       callback: async (response) => {
         if (response?.error) { setState("error", response.error_description || response.error); return; }
+        if (window.google?.accounts?.oauth2?.hasGrantedAllScopes && !google.accounts.oauth2.hasGrantedAllScopes(response, SCOPE)) {
+          setState("error", "Google Drive permission was not granted. Connect again and allow ThunderShadow app-data access.");
+          return;
+        }
         accessToken = response.access_token;
         tokenExpiry = Date.now() + Math.max(60, Number(response.expires_in || 3600)) * 1000;
         sessionStorage.setItem(TOKEN_KEY, accessToken);
@@ -87,7 +91,10 @@
     try {
       setState("connecting", "Opening Google authorization…");
       await initTokenClient();
-      tokenClient.requestAccessToken({ prompt: localStorage.getItem(ENABLED_KEY) === "1" ? "" : "consent" });
+      // Always show the account chooser on an explicit Connect/Reconnect action.
+      // This prevents a second device from silently authorizing a different
+      // signed-in Google account and therefore seeing a different appDataFolder.
+      tokenClient.requestAccessToken({ prompt: "select_account" });
     } catch (error) { setState("error", error.message); throw error; }
   }
 
@@ -98,14 +105,29 @@
 
   async function driveFetch(url, options = {}) {
     const response = await fetch(url, { ...options, cache: "no-store", headers: authHeaders(options.headers || {}) });
-    if (response.status === 401 || response.status === 403) {
-      accessToken = ""; tokenExpiry = 0; sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+
+    // 401 means the bearer token is no longer usable. Only this condition
+    // should force the UI back to Reconnect. Drive also uses 403 for quota,
+    // policy and permission errors; treating every 403 as an expired token
+    // caused false reconnect loops on some browsers/devices.
+    if (response.status === 401) {
+      accessToken = ""; tokenExpiry = 0;
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
       setState("reauth", "Google Drive authorization expired. Local saving continues; tap Reconnect Drive to resume cloud sync.");
       throw new Error("Google Drive authorization expired.");
     }
+
     if (!response.ok) {
-      let details = ""; try { details = (await response.json())?.error?.message || ""; } catch {}
-      throw new Error(details || `Google Drive request failed (${response.status}).`);
+      let details = "";
+      let reason = "";
+      try {
+        const payload = await response.json();
+        details = payload?.error?.message || "";
+        reason = payload?.error?.errors?.[0]?.reason || payload?.error?.status || "";
+      } catch {}
+      const suffix = reason ? ` [${reason}]` : "";
+      throw new Error(details ? `Google Drive ${response.status}: ${details}${suffix}` : `Google Drive request failed (${response.status})${suffix}.`);
     }
     return response;
   }
