@@ -1,0 +1,5 @@
+Delete this legacy file from the GitHub repository after applying the patch:
+
+js/drive-sync.js
+
+It is not used by the Firebase release.

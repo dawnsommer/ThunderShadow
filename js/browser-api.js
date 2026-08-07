@@ -489,7 +489,7 @@
   function match(pathname, regex) { const m = pathname.match(regex); return m ? m.slice(1).map(decodeURIComponent) : null; }
   function notifyMutation(kind, detail = {}) {
     window.dispatchEvent(new CustomEvent("thundershadow-local-data-changed", { detail: { kind, ...detail, at: nowISO() } }));
-    window.ThunderShadowDrive?.scheduleSync?.();
+    window.ThunderShadowFirebase?.scheduleSync?.();
   }
 
   async function request(path, options = {}) {

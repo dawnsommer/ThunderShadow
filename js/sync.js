@@ -25,9 +25,9 @@
   async function getCache(key) { try { return JSON.parse(localStorage.getItem(`${CACHE_PREFIX}${key}`) || "null")?.value ?? null; } catch { return null; } }
 
   async function updateStatus(forceState = null) {
-    const drive = window.ThunderShadowDrive?.getStatus?.();
-    const state = forceState || (drive?.state === "syncing" ? "pending" : drive?.state === "error" || drive?.state === "reauth" ? "offline" : "synced");
-    const detail = { state, pending: state === "pending" ? 1 : 0, conflicts: 0, lastSyncedAt: drive?.lastSyncedAt || lastSyncedAt, storage: "browser", driveState: drive?.state || "disabled" };
+    const cloud = window.ThunderShadowFirebase?.getStatus?.();
+    const state = forceState || (cloud?.state === "syncing" ? "pending" : ["error", "offline", "signedout", "unconfigured"].includes(cloud?.state) ? "offline" : "synced");
+    const detail = { state, pending: state === "pending" ? 1 : 0, conflicts: 0, lastSyncedAt: cloud?.lastSyncedAt || lastSyncedAt, storage: "browser", cloudState: cloud?.state || "signedout" };
     emit("thundershadow-sync-status", detail);
     return detail;
   }
@@ -45,7 +45,7 @@
 
   async function replay() {
     if (flusher) await flusher().catch(() => {});
-    if (window.ThunderShadowDrive?.isAuthorized?.()) await window.ThunderShadowDrive.syncNow({ background: false }).catch(() => {});
+    if (window.ThunderShadowFirebase?.isAuthorized?.()) await window.ThunderShadowFirebase.syncNow({ background: false }).catch(() => {});
     return updateStatus();
   }
   async function resolveConflict() { return null; }
@@ -53,7 +53,7 @@
   async function hasPendingForForm() { return false; }
   function initialize() {
     updateStatus();
-    addEventListener("thundershadow-drive-status", () => updateStatus());
+    addEventListener("thundershadow-firebase-status", () => updateStatus());
     addEventListener("online", () => updateStatus());
     addEventListener("offline", () => updateStatus());
   }
