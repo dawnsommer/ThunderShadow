@@ -210,11 +210,20 @@
     try {
       setState("connecting", "Google authorized. Validating Drive access…");
       await validateFreshToken();
-      setState("ready", "Google Drive authorized. Running bidirectional sync…");
-      await syncNow({ background: false });
     } catch (error) {
+      // Only an actual token/Drive validation failure should discard auth.
       clearTokenOnly();
       setState("reauth", `${error.message} Local browser data is safe; tap Reconnect Drive to try again.`);
+      return true;
+    }
+
+    // Authorization is valid at this point. A merge/storage/application error is
+    // NOT an OAuth failure and must not throw away a good Google token.
+    setState("ready", "Google Drive authorized. Running bidirectional sync…");
+    try {
+      await syncNow({ background: false });
+    } catch (error) {
+      setState("error", `Drive is connected, but sync failed: ${error.message}. Local browser data is safe. Tap Sync Now after updating/reloading the app.`);
     }
     return true;
   }
@@ -319,14 +328,22 @@
         try {
           setState("connecting", "Google authorized. Validating Drive access…");
           await validateFreshToken();
-          setState("ready", "Google Drive authorized. Running bidirectional sync…");
+        } catch (error) {
+          // Only a failed token/Drive validation invalidates this browser's auth.
+          clearTokenOnly();
+          setState("reauth", `${error.message} Local browser data is safe; tap Reconnect Drive to try again.`);
+          if (connectPromise?.reject) connectPromise.reject(error);
+          connectPromise = null;
+          return;
+        }
+
+        // Keep valid authorization even if application merge/storage code fails.
+        setState("ready", "Google Drive authorized. Running bidirectional sync…");
+        try {
           await syncNow({ background: false });
           if (connectPromise?.resolve) connectPromise.resolve();
         } catch (error) {
-          // Keep the diagnostic message. Clear only the unusable local token;
-          // do not revoke the user's Google grant or affect other devices.
-          clearTokenOnly();
-          setState("reauth", `${error.message} Local browser data is safe; tap Reconnect Drive to try again.`);
+          setState("error", `Drive is connected, but sync failed: ${error.message}. Local browser data is safe.`);
           if (connectPromise?.reject) connectPromise.reject(error);
         } finally {
           connectPromise = null;
