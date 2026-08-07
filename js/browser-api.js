@@ -487,9 +487,45 @@
   }
   function routePath(path) { return new URL(path, location.href); }
   function match(pathname, regex) { const m = pathname.match(regex); return m ? m.slice(1).map(decodeURIComponent) : null; }
+  const CLOUD_DIRTY_KEY = "thundershadow:firebase-dirty-state";
+
+  function readCloudDirtyState() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CLOUD_DIRTY_KEY) || "null");
+      return parsed && typeof parsed === "object" ? parsed : { dirty: false, forms: [], entries: [], rules: [], settings: false, tombstones: false, full: false, updatedAt: null };
+    } catch {
+      return { dirty: false, forms: [], entries: [], rules: [], settings: false, tombstones: false, full: false, updatedAt: null };
+    }
+  }
+
+  function persistCloudDirty(kind, detail = {}) {
+    const state = readCloudDirtyState();
+    const forms = new Set(Array.isArray(state.forms) ? state.forms : []);
+    const entries = new Set(Array.isArray(state.entries) ? state.entries : []);
+    const rules = new Set(Array.isArray(state.rules) ? state.rules : []);
+    if (detail.formId) forms.add(String(detail.formId));
+    if (detail.formId && detail.entryNumber != null) entries.add(`${detail.formId}:${detail.entryNumber}`);
+    if (detail.ruleId) rules.add(String(detail.ruleId));
+    if (detail.removedRuleId) rules.add(String(detail.removedRuleId));
+    const deletion = /deleted|permanent-delete|restored/.test(kind);
+    const next = {
+      dirty: true,
+      forms: [...forms],
+      entries: [...entries],
+      rules: [...rules],
+      settings: Boolean(state.settings || kind.startsWith("settings.")),
+      tombstones: Boolean(state.tombstones || deletion || kind === "database.restored"),
+      full: Boolean(state.full || kind === "database.restored"),
+      updatedAt: nowISO()
+    };
+    localStorage.setItem(CLOUD_DIRTY_KEY, JSON.stringify(next));
+    return next;
+  }
+
   function notifyMutation(kind, detail = {}) {
-    window.dispatchEvent(new CustomEvent("thundershadow-local-data-changed", { detail: { kind, ...detail, at: nowISO() } }));
-    window.ThunderShadowFirebase?.scheduleSync?.();
+    const dirtyState = persistCloudDirty(kind, detail);
+    const eventDetail = { kind, ...detail, dirtyState, at: nowISO() };
+    window.dispatchEvent(new CustomEvent("thundershadow-local-data-changed", { detail: eventDetail }));
   }
 
   async function request(path, options = {}) {
@@ -501,15 +537,15 @@
       if (pathname.endsWith("/api/forms") && method === "GET") return jsonResponse(await allForms());
       if (pathname.endsWith("/api/forms") && method === "POST") {
         const body = await parseBody(options); if (await get(STORES.forms, body.id)) return errorResponse(new Error("A form with that id already exists."), 409, "CONFLICT");
-        const form = normalizeForm({ ...body, revision: 1, createdAt: nowISO(), updatedAt: nowISO() }); await put(STORES.forms, form); await clearTombstone("form", form.id); notifyMutation("form.created", { formId: form.id }); return jsonResponse(form, 201);
+        const form = normalizeForm({ ...body, revision: 1, createdAt: nowISO(), updatedAt: nowISO() }); await put(STORES.forms, form); await clearTombstone("form", form.id); notifyMutation("form.created", { formId: form.id, immediate: true }); return jsonResponse(form, 201);
       }
 
       let m = match(pathname, /\/api\/forms\/([^/]+)$/);
       if (m) {
         const [id] = m; const form = await get(STORES.forms, id); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND");
         if (method === "GET") return jsonResponse(normalizeForm(form, form));
-        if (method === "PUT") { const body = await parseBody(options); const saved = normalizeForm({ ...form, ...body, id, entries: form.entries, questions: form.entries, revision: Number(form.revision || 0) + 1, updatedAt: nowISO() }, form); await put(STORES.forms, saved); notifyMutation("form.updated", { formId: id }); return jsonResponse(saved); }
-        if (method === "DELETE") { await del(STORES.forms, id); await markDeleted("form", id); notifyMutation("form.deleted", { formId: id }); return new Response(null, { status: 204 }); }
+        if (method === "PUT") { const body = await parseBody(options); const finishedChanged = Object.prototype.hasOwnProperty.call(body || {}, "finished") && Boolean(body.finished) !== Boolean(form.finished); const saved = normalizeForm({ ...form, ...body, id, entries: form.entries, questions: form.entries, revision: Number(form.revision || 0) + 1, updatedAt: nowISO() }, form); await put(STORES.forms, saved); notifyMutation(finishedChanged ? "form.finished-state" : "form.updated", { formId: id, immediate: finishedChanged }); return jsonResponse(saved); }
+        if (method === "DELETE") { await del(STORES.forms, id); await markDeleted("form", id); notifyMutation("form.deleted", { formId: id, immediate: true }); return new Response(null, { status: 204 }); }
       }
 
       m = match(pathname, /\/api\/forms\/([^/]+)\/(?:entries|questions)$/);
@@ -541,24 +577,24 @@
           entries[index] = saved; form.entries = entries.sort((a, b) => a.entryNumber - b.entryNumber); form.questions = form.entries; form.currentEntry = n; form.currentQuestion = n; form.updatedAt = nowISO(); await put(STORES.forms, form); notifyMutation("entry.updated", { formId, entryNumber: n }); return jsonResponse(saved);
         }
         if (method === "DELETE") {
-          if (index < 0) return errorResponse(new Error("Entry not found."), 404, "NOT_FOUND"); const entry = entries[index]; entry.deleted = true; entry.revision = Number(entry.revision || 0) + 1; entry.updatedAt = nowISO(); entries[index] = entry; form.entries = entries; form.questions = entries; form.updatedAt = nowISO(); await put(STORES.forms, form); notifyMutation("entry.deleted", { formId, entryNumber: n }); return new Response(null, { status: 204 });
+          if (index < 0) return errorResponse(new Error("Entry not found."), 404, "NOT_FOUND"); const entry = entries[index]; entry.deleted = true; entry.revision = Number(entry.revision || 0) + 1; entry.updatedAt = nowISO(); entries[index] = entry; form.entries = entries; form.questions = entries; form.updatedAt = nowISO(); await put(STORES.forms, form); notifyMutation("entry.deleted", { formId, entryNumber: n, immediate: true }); return new Response(null, { status: 204 });
         }
       }
 
       m = match(pathname, /\/api\/forms\/([^/]+)\/entries\/(\d+)\/restore$/);
       if (m && method === "POST") {
-        const [formId, nText] = m, n = Number(nText); const form = await get(STORES.forms, formId); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); const entries = (form.entries || []).map((entry) => normalizeEntry(entry)); const index = entries.findIndex((entry) => entry.entryNumber === n); if (index < 0) return errorResponse(new Error("Entry not found."), 404, "NOT_FOUND"); entries[index].deleted = false; entries[index].revision += 1; entries[index].updatedAt = nowISO(); form.entries = entries; form.questions = entries; form.updatedAt = nowISO(); await put(STORES.forms, form); notifyMutation("entry.restored", { formId, entryNumber: n }); return jsonResponse(entries[index]);
+        const [formId, nText] = m, n = Number(nText); const form = await get(STORES.forms, formId); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); const entries = (form.entries || []).map((entry) => normalizeEntry(entry)); const index = entries.findIndex((entry) => entry.entryNumber === n); if (index < 0) return errorResponse(new Error("Entry not found."), 404, "NOT_FOUND"); entries[index].deleted = false; entries[index].revision += 1; entries[index].updatedAt = nowISO(); form.entries = entries; form.questions = entries; form.updatedAt = nowISO(); await put(STORES.forms, form); notifyMutation("entry.restored", { formId, entryNumber: n, immediate: true }); return jsonResponse(entries[index]);
       }
       m = match(pathname, /\/api\/forms\/([^/]+)\/entries\/(\d+)\/permanent$/);
       if (m && method === "DELETE") {
-        const [formId, nText] = m, n = Number(nText); const body = await parseBody(options); const form = await get(STORES.forms, formId); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); const entries = (form.entries || []).map((entry) => normalizeEntry(entry)); const target = entries.find((entry) => entry.entryNumber === n); if (!target?.deleted) return errorResponse(new Error("Only deleted entries can be permanently removed."), 400); if (body.confirmation !== `DELETE ENTRY ${n}`) return errorResponse(new Error(`Type DELETE ENTRY ${n} to confirm.`), 400); form.entries = entries.filter((entry) => entry.entryNumber !== n); form.questions = form.entries; form.updatedAt = nowISO(); await put(STORES.forms, form); await markDeleted("entry", `${formId}:${n}`); notifyMutation("entry.permanent-delete", { formId, entryNumber: n }); return new Response(null, { status: 204 });
+        const [formId, nText] = m, n = Number(nText); const body = await parseBody(options); const form = await get(STORES.forms, formId); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); const entries = (form.entries || []).map((entry) => normalizeEntry(entry)); const target = entries.find((entry) => entry.entryNumber === n); if (!target?.deleted) return errorResponse(new Error("Only deleted entries can be permanently removed."), 400); if (body.confirmation !== `DELETE ENTRY ${n}`) return errorResponse(new Error(`Type DELETE ENTRY ${n} to confirm.`), 400); form.entries = entries.filter((entry) => entry.entryNumber !== n); form.questions = form.entries; form.updatedAt = nowISO(); await put(STORES.forms, form); await markDeleted("entry", `${formId}:${n}`); notifyMutation("entry.permanent-delete", { formId, entryNumber: n, immediate: true }); return new Response(null, { status: 204 });
       }
       m = match(pathname, /\/api\/forms\/([^/]+)\/export\.tsv$/);
       if (m && method === "GET") { const form = await get(STORES.forms, m[0]); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); return textResponse(formToTsv(normalizeForm(form, form)), "text/tab-separated-values; charset=utf-8", `${safeFilename(form.name)}_ThunderShadow_Log.tsv`); }
 
       if (pathname.endsWith("/api/backup") && method === "GET") return jsonResponse(await exportPackage());
       if (pathname.endsWith("/api/restore") && method === "POST") {
-        const body = await parseBody(options); const payload = typeof body === "string" ? JSON.parse(body) : body; await createSnapshot("safety-before-json-restore"); const result = await replacePackage(payload); notifyMutation("database.restored"); return jsonResponse(result);
+        const body = await parseBody(options); const payload = typeof body === "string" ? JSON.parse(body) : body; await createSnapshot("safety-before-json-restore"); const result = await replacePackage(payload); notifyMutation("database.restored", { immediate: true }); return jsonResponse(result);
       }
       if (pathname.endsWith("/api/backups") && method === "GET") {
         const backups = (await getAll(STORES.backups)).sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt))).map(({ payload, ...metadata }) => metadata);
@@ -569,7 +605,7 @@
       if (m && method === "GET") { const record = await get(STORES.backups, m[0]); if (!record?.payload) return errorResponse(new Error("Backup not found."), 404, "NOT_FOUND"); return textResponse(JSON.stringify(record.payload, null, 2), "application/json; charset=utf-8", record.filename); }
       if (pathname.endsWith("/api/backups/preview") && method === "POST") { const body = await parseBody(options); const record = await get(STORES.backups, body.filename); if (!record?.payload) return errorResponse(new Error("Backup not found."), 404, "NOT_FOUND"); const token = uuid(); restorePreviews.set(token, { payload: record.payload, source: { type: "browser", filename: record.filename }, expiresAt: Date.now() + 10 * 60_000 }); return jsonResponse({ token, expiresIn: 600, source: { type: "browser", filename: record.filename }, preview: previewPackage(record.payload) }); }
       if (pathname.endsWith("/api/backups/restore") && method === "POST") {
-        const body = await parseBody(options); if (body.confirmation !== "RESTORE") return errorResponse(new Error("Type RESTORE to confirm database restoration."), 400); const preview = restorePreviews.get(body.previewToken); restorePreviews.delete(body.previewToken); if (!preview || preview.expiresAt < Date.now()) return errorResponse(new Error("Restore preview is missing or expired."), 400, "RESTORE_PREVIEW_EXPIRED"); const safety = await createSnapshot("safety"); await replacePackage(preview.payload); notifyMutation("database.restored"); return jsonResponse({ restored: true, safetyBackup: safety.filename, preview: previewPackage(preview.payload), reauthenticationRequired: false });
+        const body = await parseBody(options); if (body.confirmation !== "RESTORE") return errorResponse(new Error("Type RESTORE to confirm database restoration."), 400); const preview = restorePreviews.get(body.previewToken); restorePreviews.delete(body.previewToken); if (!preview || preview.expiresAt < Date.now()) return errorResponse(new Error("Restore preview is missing or expired."), 400, "RESTORE_PREVIEW_EXPIRED"); const safety = await createSnapshot("safety"); await replacePackage(preview.payload); notifyMutation("database.restored", { immediate: true }); return jsonResponse({ restored: true, safetyBackup: safety.filename, preview: previewPackage(preview.payload), reauthenticationRequired: false });
       }
       if (pathname.endsWith("/api/portable/export") && method === "POST") { const body = await parseBody(options); const bytes = await encryptPortable(await exportPackage(), body.passphrase); return bytesResponse(bytes, "application/octet-stream", `ThunderShadow_Encrypted_${nowISO().slice(0, 10)}.tsbackup`); }
       if (pathname.endsWith("/api/portable/import/preview") && method === "POST") { const headers = new Headers(options.headers || {}); const passphrase = headers.get("X-ThunderShadow-Passphrase") || ""; const filename = headers.get("X-ThunderShadow-Filename") || "portable.tsbackup"; const buffer = await parseBody(options); const payload = await decryptPortable(buffer, passphrase); const token = uuid(); const source = { type: "encrypted-browser", filename }; restorePreviews.set(token, { payload, source, expiresAt: Date.now() + 10 * 60_000 }); return jsonResponse({ token, expiresIn: 600, source, preview: previewPackage(payload) }); }
@@ -593,7 +629,7 @@
       }
       m = match(pathname, /\/api\/rules\/([^/]+)\/merge$/);
       if (m && method === "POST") {
-        const target = await get(STORES.rules, m[0]); const body = await parseBody(options); const source = await get(STORES.rules, body.sourceRuleId); if (!target || !source) return errorResponse(new Error("Merge rule was not found."), 404, "NOT_FOUND"); if (target.id === source.id) return errorResponse(new Error("A rule cannot be merged into itself."), 400); const merged = normalizeRule({ ...target, pattern: body.pattern || target.pattern, ruleText: body.ruleText ?? target.ruleText, updatedAt: nowISO() }, target); merged.aliases = [...(target.aliases || []), { pattern: source.pattern, ruleText: source.ruleText }, ...(source.aliases || [])]; merged.reviewHistory = [...(target.reviewHistory || []), ...(source.reviewHistory || [])]; merged.successfulReviews = Number(target.successfulReviews || 0) + Number(source.successfulReviews || 0); await put(STORES.rules, merged); await del(STORES.rules, source.id); await markDeleted("rule", source.id); notifyMutation("rule.merged", { ruleId: target.id, removedRuleId: source.id }); return jsonResponse(await hydrateRule(merged));
+        const target = await get(STORES.rules, m[0]); const body = await parseBody(options); const source = await get(STORES.rules, body.sourceRuleId); if (!target || !source) return errorResponse(new Error("Merge rule was not found."), 404, "NOT_FOUND"); if (target.id === source.id) return errorResponse(new Error("A rule cannot be merged into itself."), 400); const merged = normalizeRule({ ...target, pattern: body.pattern || target.pattern, ruleText: body.ruleText ?? target.ruleText, updatedAt: nowISO() }, target); merged.aliases = [...(target.aliases || []), { pattern: source.pattern, ruleText: source.ruleText }, ...(source.aliases || [])]; merged.reviewHistory = [...(target.reviewHistory || []), ...(source.reviewHistory || [])]; merged.successfulReviews = Number(target.successfulReviews || 0) + Number(source.successfulReviews || 0); await put(STORES.rules, merged); await del(STORES.rules, source.id); await markDeleted("rule", source.id); notifyMutation("rule.merged", { ruleId: target.id, removedRuleId: source.id, immediate: true }); return jsonResponse(await hydrateRule(merged));
       }
       m = match(pathname, /\/api\/rules\/([^/]+)\/reviews$/);
       if (m && method === "POST") {
@@ -606,7 +642,7 @@
       if (pathname.endsWith("/api/export/chatgpt-analysis.md") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; const analytics = calculateAnalytics(await allForms(), filters); return textResponse(analysisMarkdown(analytics, await allHydratedRules()), "text/markdown; charset=utf-8", "ThunderShadow_ChatGPT_Analysis.md"); }
 
       if (pathname.endsWith("/api/settings") && method === "GET") return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, backup: { directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS }, schemaVersion: SCHEMA_VERSION });
-      if (pathname.endsWith("/api/settings") && method === "PUT") { const body = await parseBody(options); const uiScale = Number(body.uiScale); if (!ZOOM_LEVELS.has(uiScale)) return errorResponse(new Error("UI scale must be 80–120 in 5% steps."), 400); await setSetting("ui_scale", uiScale); return jsonResponse({ uiScale }); }
+      if (pathname.endsWith("/api/settings") && method === "PUT") { const body = await parseBody(options); const uiScale = Number(body.uiScale); if (!ZOOM_LEVELS.has(uiScale)) return errorResponse(new Error("UI scale must be 80–120 in 5% steps."), 400); const previous = Number(await getSetting("ui_scale", 100)) || 100; if (previous !== uiScale) { await setSetting("ui_scale", uiScale); notifyMutation("settings.updated", { setting: "uiScale" }); } return jsonResponse({ uiScale }); }
 
       return errorResponse(new Error("Browser API endpoint not found."), 404, "NOT_FOUND");
     } catch (error) {

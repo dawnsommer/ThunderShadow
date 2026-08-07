@@ -26,7 +26,8 @@
 
   async function updateStatus(forceState = null) {
     const cloud = window.ThunderShadowFirebase?.getStatus?.();
-    const state = forceState || (cloud?.state === "syncing" ? "pending" : ["error", "offline", "signedout", "unconfigured"].includes(cloud?.state) ? "offline" : "synced");
+    const dirty = Boolean(window.ThunderShadowFirebase?.getDirtyState?.().dirty);
+    const state = forceState || (cloud?.state === "syncing" || dirty ? "pending" : ["error", "offline", "signedout", "unconfigured"].includes(cloud?.state) ? "offline" : "synced");
     const detail = { state, pending: state === "pending" ? 1 : 0, conflicts: 0, lastSyncedAt: cloud?.lastSyncedAt || lastSyncedAt, storage: "browser", cloudState: cloud?.state || "signedout" };
     emit("thundershadow-sync-status", detail);
     return detail;
@@ -45,7 +46,7 @@
 
   async function replay() {
     if (flusher) await flusher().catch(() => {});
-    if (window.ThunderShadowFirebase?.isAuthorized?.()) await window.ThunderShadowFirebase.syncNow({ background: false }).catch(() => {});
+    if (window.ThunderShadowFirebase?.isAuthorized?.()) await window.ThunderShadowFirebase.syncNow({ background: false, reason: "retry-sync" }).catch(() => {});
     return updateStatus();
   }
   async function resolveConflict() { return null; }
@@ -54,6 +55,7 @@
   function initialize() {
     updateStatus();
     addEventListener("thundershadow-firebase-status", () => updateStatus());
+    addEventListener("thundershadow-local-data-changed", () => updateStatus());
     addEventListener("online", () => updateStatus());
     addEventListener("offline", () => updateStatus());
   }

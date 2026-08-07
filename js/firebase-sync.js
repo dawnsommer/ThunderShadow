@@ -6,6 +6,10 @@
   const LAST_SYNC_KEY = "thundershadow:firebase-last-sync";
   const DEVICE_ID_KEY = "thundershadow:firebase-device-id";
   const REDIRECT_STATE_KEY = "thundershadow:firebase-google-redirect-state";
+  const DIRTY_STATE_KEY = "thundershadow:firebase-dirty-state";
+  const REMOTE_META_KEY = "thundershadow:firebase-remote-meta";
+  const DEBUG_KEY = "thundershadow:firebase-debug";
+  const SYNC_DEBOUNCE_MS = 7500;
 
   let sdk = null;
   let firebaseApp = null;
@@ -19,6 +23,12 @@
   let message = "Initializing Firebase…";
   let lastSyncedAt = localStorage.getItem(LAST_SYNC_KEY) || null;
   let deviceId = localStorage.getItem(DEVICE_ID_KEY) || "";
+  let initialized = false;
+  let listenersBound = false;
+  let startupCheckedUid = "";
+  let remoteCheckPromise = null;
+  let lastRemoteCheckAt = 0;
+  const diagnostics = { reads: 0, writesAttempted: 0, writesSkipped: 0, syncs: 0 };
 
   if (!deviceId) {
     deviceId = window.ThunderShadowUUID?.() || crypto.randomUUID();
@@ -134,8 +144,12 @@
       if (currentUser) {
         localStorage.setItem(ENABLED_KEY, "1");
         setState("ready", `Cloud sync ready for ${currentUser.email || "this Google account"}.`);
-        setTimeout(() => syncNow({ background: true }).catch(() => {}), 700);
+        if (startupCheckedUid !== currentUser.uid) {
+          startupCheckedUid = currentUser.uid;
+          setTimeout(() => startupSyncCheck().catch(() => {}), 700);
+        }
       } else {
+        startupCheckedUid = "";
         setState("signedout", "Progress is saved locally. Sign in with Google to enable Firebase cloud sync.");
       }
     });
@@ -267,6 +281,66 @@
     return value;
   }
 
+  function debugEnabled() {
+    return localStorage.getItem(DEBUG_KEY) === "1" || window.THUNDERSHADOW_CONFIG?.firebaseDebug === true;
+  }
+
+  function debug(message, extra = null) {
+    if (!debugEnabled()) return;
+    if (extra == null) console.info(`[CloudSync] ${message}`);
+    else console.info(`[CloudSync] ${message}`, extra);
+  }
+
+  function blankDirtyState() {
+    return { dirty: false, forms: [], entries: [], rules: [], settings: false, tombstones: false, full: false, updatedAt: null };
+  }
+
+  function getDirtyState() {
+    try {
+      const value = JSON.parse(localStorage.getItem(DIRTY_STATE_KEY) || "null");
+      return value && typeof value === "object" ? { ...blankDirtyState(), ...value } : blankDirtyState();
+    } catch { return blankDirtyState(); }
+  }
+
+  function clearDirtyState() {
+    localStorage.setItem(DIRTY_STATE_KEY, JSON.stringify(blankDirtyState()));
+  }
+
+  function dirtyCount(state = getDirtyState()) {
+    return new Set([...(state.forms || []), ...(state.entries || []), ...(state.rules || [])]).size + (state.settings ? 1 : 0) + (state.tombstones ? 1 : 0) + (state.full ? 1 : 0);
+  }
+
+  function stableValue(value) {
+    if (Array.isArray(value)) return value.map(stableValue);
+    if (!value || typeof value !== "object") return value;
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = stableValue(value[key]);
+    return out;
+  }
+
+  function equivalent(a, b) {
+    return JSON.stringify(stableValue(a)) === JSON.stringify(stableValue(b));
+  }
+
+  function remoteMetaMarker(meta = {}) {
+    return String(meta.updatedAt || meta.exportedAt || "");
+  }
+
+  function rememberRemoteMeta(meta = {}) {
+    localStorage.setItem(REMOTE_META_KEY, JSON.stringify({ marker: remoteMetaMarker(meta), exists: Boolean(Object.keys(meta || {}).length), checkedAt: new Date().toISOString() }));
+  }
+
+  function lastRemoteMetaMarker() {
+    try { return JSON.parse(localStorage.getItem(REMOTE_META_KEY) || "null")?.marker || ""; } catch { return ""; }
+  }
+
+  async function getRemoteMeta() {
+    const snap = await sdk.getDoc(sdk.doc(db, ...userPath("sync", "meta")));
+    diagnostics.reads += 1;
+    const meta = snap.exists() ? snap.data() : {};
+    return { exists: snap.exists(), meta };
+  }
+
   async function getRemotePackage() {
     const [metaSnap, formsSnap, entriesSnap, rulesSnap] = await Promise.all([
       sdk.getDoc(sdk.doc(db, ...userPath("sync", "meta"))),
@@ -274,11 +348,17 @@
       sdk.getDocs(sdk.collection(db, ...userPath("entries"))),
       sdk.getDocs(sdk.collection(db, ...userPath("rules")))
     ]);
+    diagnostics.reads += 1 + formsSnap.size + entriesSnap.size + rulesSnap.size;
 
     const remoteIds = {
       forms: new Set(formsSnap.docs.map((d) => d.id)),
       entries: new Set(entriesSnap.docs.map((d) => d.id)),
       rules: new Set(rulesSnap.docs.map((d) => d.id))
+    };
+    const remoteRecords = {
+      forms: new Map(formsSnap.docs.map((d) => [d.id, firestoreSafe(d.data())])),
+      entries: new Map(entriesSnap.docs.map((d) => [d.id, firestoreSafe(d.data())])),
+      rules: new Map(rulesSnap.docs.map((d) => [d.id, firestoreSafe(d.data())]))
     };
     const forms = new Map();
     for (const document of formsSnap.docs) {
@@ -302,7 +382,9 @@
 
     return {
       exists,
+      meta,
       remoteIds,
+      remoteRecords,
       payload: {
         app: "ThunderShadow",
         version: Number(meta.version || 6),
@@ -343,6 +425,7 @@
     for (let start = 0; start < operations.length; start += chunkSize) {
       const batch = sdk.writeBatch(db);
       for (const op of operations.slice(start, start + chunkSize)) {
+        diagnostics.writesAttempted += 1;
         if (op.type === "delete") batch.delete(op.ref);
         else batch.set(op.ref, op.data);
       }
@@ -350,7 +433,20 @@
     }
   }
 
-  async function writeRemotePackage(payload, remoteIds = { forms: new Set(), entries: new Set(), rules: new Set() }) {
+  function desiredMeta(payload, previousMeta, dataChanged) {
+    return {
+      app: "ThunderShadow",
+      version: Number(payload.version || 6),
+      schemaVersion: Number(payload.schemaVersion || 1),
+      exportedAt: dataChanged ? new Date().toISOString() : (previousMeta?.exportedAt || payload.exportedAt || new Date().toISOString()),
+      updatedAt: dataChanged ? new Date().toISOString() : (previousMeta?.updatedAt || ""),
+      lastModifiedBy: dataChanged ? deviceId : (previousMeta?.lastModifiedBy || deviceId),
+      settings: firestoreSafe(payload.settings || {}),
+      tombstones: firestoreSafe(payload.tombstones || { forms: {}, rules: {}, entries: {} })
+    };
+  }
+
+  async function writeRemotePackage(payload, remote) {
     const records = packageCloudRecords(payload);
     const operations = [];
     const target = {
@@ -359,28 +455,50 @@
       rules: new Set(records.rules.map((v) => v.id))
     };
 
-    for (const record of records.forms) operations.push({ type: "set", ref: sdk.doc(db, ...userPath("forms", record.id)), data: record.data });
-    for (const record of records.entries) operations.push({ type: "set", ref: sdk.doc(db, ...userPath("entries", record.id)), data: record.data });
-    for (const record of records.rules) operations.push({ type: "set", ref: sdk.doc(db, ...userPath("rules", record.id)), data: record.data });
+    for (const [kind, collection] of [["forms", records.forms], ["entries", records.entries], ["rules", records.rules]]) {
+      for (const record of collection) {
+        const existing = remote.remoteRecords[kind].get(record.id);
+        if (existing && equivalent(existing, record.data)) {
+          diagnostics.writesSkipped += 1;
+          debug(`skip ${kind}/${record.id} unchanged`);
+          continue;
+        }
+        operations.push({ type: "set", ref: sdk.doc(db, ...userPath(kind, record.id)), data: record.data, label: `${kind}/${record.id}` });
+      }
+    }
 
-    for (const id of remoteIds.forms || []) if (!target.forms.has(id)) operations.push({ type: "delete", ref: sdk.doc(db, ...userPath("forms", id)) });
-    for (const id of remoteIds.entries || []) if (!target.entries.has(id)) operations.push({ type: "delete", ref: sdk.doc(db, ...userPath("entries", id)) });
-    for (const id of remoteIds.rules || []) if (!target.rules.has(id)) operations.push({ type: "delete", ref: sdk.doc(db, ...userPath("rules", id)) });
+    for (const kind of ["forms", "entries", "rules"]) {
+      for (const id of remote.remoteIds[kind] || []) {
+        if (!target[kind].has(id)) operations.push({ type: "delete", ref: sdk.doc(db, ...userPath(kind, id)), label: `${kind}/${id}` });
+      }
+    }
 
-    await commitOperations(operations);
-    await sdk.setDoc(sdk.doc(db, ...userPath("sync", "meta")), {
-      app: "ThunderShadow",
-      version: Number(payload.version || 6),
-      schemaVersion: Number(payload.schemaVersion || 1),
-      exportedAt: payload.exportedAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      lastModifiedBy: deviceId,
-      settings: firestoreSafe(payload.settings || {}),
-      tombstones: firestoreSafe(payload.tombstones || { forms: {}, rules: {}, entries: {} })
-    });
+    const recordChanges = operations.length;
+    const metaCandidate = desiredMeta(payload, remote.meta, recordChanges > 0);
+    const metaSemanticsChanged = remote.exists && !equivalent(
+      { app: remote.meta?.app || "ThunderShadow", version: Number(remote.meta?.version || 6), schemaVersion: Number(remote.meta?.schemaVersion || 1), settings: remote.meta?.settings || {}, tombstones: remote.meta?.tombstones || { forms: {}, rules: {}, entries: {} } },
+      { app: metaCandidate.app, version: metaCandidate.version, schemaVersion: metaCandidate.schemaVersion, settings: metaCandidate.settings, tombstones: metaCandidate.tombstones }
+    );
+    const shouldWriteMeta = recordChanges > 0 || metaSemanticsChanged;
+
+    if (operations.length) {
+      for (const op of operations) debug(`${op.type === "delete" ? "delete" : "write"} ${op.label}`);
+      await commitOperations(operations);
+    }
+    if (shouldWriteMeta) {
+      diagnostics.writesAttempted += 1;
+      await sdk.setDoc(sdk.doc(db, ...userPath("sync", "meta")), metaCandidate);
+      debug("write sync/meta");
+      rememberRemoteMeta(metaCandidate);
+    } else {
+      diagnostics.writesSkipped += 1;
+      rememberRemoteMeta(remote.meta || {});
+      debug("skip sync/meta unchanged");
+    }
+    return { writes: recordChanges + (shouldWriteMeta ? 1 : 0), skipped: diagnostics.writesSkipped, meta: shouldWriteMeta ? metaCandidate : remote.meta };
   }
 
-  async function syncNow({ background = false } = {}) {
+  async function syncNow({ background = false, reason = "manual" } = {}) {
     if (!currentUser) {
       if (!background) return connect();
       setState("signedout", "Progress is saved locally. Sign in with Google to enable cloud sync.");
@@ -389,6 +507,13 @@
     if (!db) throw new Error("Firestore is not initialized.");
     if (syncPromise) return syncPromise;
 
+    const dirtyAtStart = getDirtyState();
+    const beforeReads = diagnostics.reads;
+    const beforeWrites = diagnostics.writesAttempted;
+    const beforeSkipped = diagnostics.writesSkipped;
+    diagnostics.syncs += 1;
+    debug(`trigger=${reason} dirty=${dirtyCount(dirtyAtStart)}`);
+
     syncPromise = (async () => {
       setState("syncing", background ? "Synchronizing changes with Firebase…" : "Synchronizing browser data with Firebase…");
       const remote = await getRemotePackage();
@@ -396,12 +521,15 @@
       if (remote.exists) merged = await window.ThunderShadowBrowserApi.mergePackage(remote.payload);
       else merged = await window.ThunderShadowBrowserApi.exportPackage();
 
-      merged.sync = { deviceId, syncedAt: new Date().toISOString(), format: "firebase-firestore-v1" };
-      await writeRemotePackage(merged, remote.remoteIds);
+      const result = await writeRemotePackage(merged, remote);
+      const dirtyAfterSync = getDirtyState();
+      if (!dirtyAfterSync.dirty || dirtyAfterSync.updatedAt === dirtyAtStart.updatedAt) clearDirtyState();
+      else scheduleSync({ reason: "edit-during-sync" });
       lastSyncedAt = new Date().toISOString();
       localStorage.setItem(LAST_SYNC_KEY, lastSyncedAt);
       setState("synced", "Browser data and Firebase are synchronized.");
-      window.dispatchEvent(new CustomEvent("thundershadow-cloud-merged", { detail: { uid: currentUser.uid } }));
+      window.dispatchEvent(new CustomEvent("thundershadow-cloud-merged", { detail: { uid: currentUser.uid, reason, writes: result.writes } }));
+      debug(`complete reason=${reason} reads=${diagnostics.reads - beforeReads} writes=${diagnostics.writesAttempted - beforeWrites} skipped=${diagnostics.writesSkipped - beforeSkipped}`);
       return merged;
     })().catch((error) => {
       const code = String(error?.code || "");
@@ -417,12 +545,65 @@
     return syncPromise;
   }
 
-  function scheduleSync() {
+  async function checkRemoteChanged(reason) {
+    if (!currentUser || !navigator.onLine) return false;
+    if (remoteCheckPromise) return remoteCheckPromise;
+    if (Date.now() - lastRemoteCheckAt < 5000) {
+      debug(`skip remote-check reason=${reason} throttled`);
+      return false;
+    }
+    remoteCheckPromise = (async () => {
+      const { exists, meta } = await getRemoteMeta();
+      lastRemoteCheckAt = Date.now();
+      const previous = lastRemoteMetaMarker();
+      const current = remoteMetaMarker(meta);
+      rememberRemoteMeta(meta);
+      debug(`remote-check reason=${reason} exists=${exists} changed=${Boolean(current && current !== previous)}`);
+      if (!exists) return false;
+      if (!previous) return true;
+      return current !== previous;
+    })().finally(() => { remoteCheckPromise = null; });
+    return remoteCheckPromise;
+  }
+
+  async function startupSyncCheck() {
+    if (!currentUser || !navigator.onLine) return;
+    const dirty = getDirtyState();
+    if (dirty.dirty) return syncNow({ background: true, reason: "startup-dirty" });
+    const knownMarker = lastRemoteMetaMarker();
+    if (!knownMarker) return syncNow({ background: true, reason: "startup-initial-check" });
+    if (await checkRemoteChanged("startup-clean")) return syncNow({ background: true, reason: "startup-remote-change" });
+    setState("synced", "Browser data and Firebase are synchronized.");
+  }
+
+  function scheduleSync({ reason = "local-edit", immediate = false } = {}) {
     if (!currentUser) return;
+    const dirty = getDirtyState();
+    if (!dirty.dirty) {
+      debug(`skip trigger=${reason} clean`);
+      return;
+    }
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(() => {
-      if (document.visibilityState === "visible" && navigator.onLine) syncNow({ background: true }).catch(() => {});
-    }, 1800);
+    const run = () => {
+      if (navigator.onLine) syncNow({ background: true, reason }).catch(() => {});
+    };
+    if (immediate) run();
+    else syncTimer = setTimeout(run, SYNC_DEBOUNCE_MS);
+  }
+
+  async function handleForeground() {
+    if (!currentUser || !navigator.onLine) return;
+    if (getDirtyState().dirty) return scheduleSync({ reason: "foreground-dirty", immediate: true });
+    if (await checkRemoteChanged("foreground-clean")) return syncNow({ background: true, reason: "foreground-remote-change" });
+  }
+
+  function handleLocalMutation(event) {
+    const detail = event?.detail || {};
+    scheduleSync({ reason: detail.kind || "local-edit", immediate: Boolean(detail.immediate) });
+  }
+
+  function getDiagnostics() {
+    return { ...diagnostics, dirty: getDirtyState(), debounceMs: SYNC_DEBOUNCE_MS };
   }
 
   async function disconnect() {
@@ -435,26 +616,35 @@
 
   function bindDom() {
     document.getElementById("firebaseConnectBtn")?.addEventListener("click", () => connect().catch((e) => window.ThunderShadowApp?.showToast?.(e.message)));
-    document.getElementById("firebaseSyncNowBtn")?.addEventListener("click", () => syncNow({ background: false }).catch((e) => window.ThunderShadowApp?.showToast?.(e.message)));
+    document.getElementById("firebaseSyncNowBtn")?.addEventListener("click", () => syncNow({ background: false, reason: "manual-sync" }).catch((e) => window.ThunderShadowApp?.showToast?.(e.message)));
     document.getElementById("firebaseDisconnectBtn")?.addEventListener("click", () => disconnect().catch((e) => window.ThunderShadowApp?.showToast?.(e.message)));
     updateDom();
   }
 
   async function initialize() {
+    if (initialized) return;
+    initialized = true;
     bindDom();
     emit();
     try {
       if (!(await initFirebase())) return;
-      const consumed = await consumeDirectGoogleRedirect();
-      if (consumed && currentUser) setTimeout(() => syncNow({ background: false }).catch(() => {}), 300);
+      await consumeDirectGoogleRedirect();
     } catch (error) {
       setState("error", `Firebase initialization failed: ${error?.message || error}. Local browser data is safe.`);
     }
 
-    addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && currentUser && navigator.onLine) scheduleSync();
-    });
-    addEventListener("online", () => { if (currentUser) scheduleSync(); });
+    if (!listenersBound) {
+      listenersBound = true;
+      addEventListener("thundershadow-local-data-changed", handleLocalMutation);
+      addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") handleForeground().catch(() => {});
+      });
+      addEventListener("pageshow", () => handleForeground().catch(() => {}));
+      addEventListener("focus", () => handleForeground().catch(() => {}));
+      addEventListener("online", () => {
+        if (currentUser && getDirtyState().dirty) scheduleSync({ reason: "online-dirty", immediate: true });
+      });
+    }
   }
 
   window.ThunderShadowFirebase = {
@@ -464,7 +654,10 @@
     syncNow,
     scheduleSync,
     getStatus,
-    isAuthorized
+    isAuthorized,
+    getDirtyState,
+    getDiagnostics,
+    checkRemoteChanged
   };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialize, { once: true });
