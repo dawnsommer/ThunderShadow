@@ -5,25 +5,49 @@
   const GIS_SRC = "https://accounts.google.com/gsi/client";
   const DRIVE_API = "https://www.googleapis.com/drive/v3";
   const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3";
-  const CLIENT_ID_KEY = "thundershadow:google-client-id";
+  const LEGACY_CLIENT_ID_KEY = "thundershadow:google-client-id";
   const ENABLED_KEY = "thundershadow:drive-enabled";
   const FILE_ID_KEY = "thundershadow:drive-file-id";
   const LAST_SYNC_KEY = "thundershadow:drive-last-sync";
   const TOKEN_KEY = "thundershadow:drive-access-token";
   const TOKEN_EXPIRY_KEY = "thundershadow:drive-token-expiry";
   const DEVICE_ID_KEY = "thundershadow:drive-device-id";
+  const ACCOUNT_LABEL_KEY = "thundershadow:drive-account-label";
+
   let tokenClient = null;
   let accessToken = sessionStorage.getItem(TOKEN_KEY) || "";
   let tokenExpiry = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || 0);
   let syncTimer = null;
   let syncPromise = null;
+  let connectPromise = null;
+  let accountLabel = localStorage.getItem(ACCOUNT_LABEL_KEY) || "";
   let state = localStorage.getItem(ENABLED_KEY) === "1" ? "reauth" : "disabled";
   let message = state === "reauth" ? "Google Drive was enabled previously. Reconnect to resume cloud sync." : "Browser storage is active. Google Drive sync is optional.";
   let lastSyncedAt = localStorage.getItem(LAST_SYNC_KEY) || null;
   let deviceId = localStorage.getItem(DEVICE_ID_KEY);
-  if (!deviceId) { deviceId = window.ThunderShadowUUID(); localStorage.setItem(DEVICE_ID_KEY, deviceId); }
-  if (accessToken && tokenExpiry > Date.now() + 30_000) { state = "ready"; message = "Google Drive authorization restored for this browser session."; }
-  else { accessToken = ""; tokenExpiry = 0; sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_EXPIRY_KEY); }
+
+  if (!deviceId) {
+    deviceId = window.ThunderShadowUUID();
+    localStorage.setItem(DEVICE_ID_KEY, deviceId);
+  }
+
+  // Public release: one OAuth client is shipped with the app. Remove any legacy
+  // per-browser override so every device authorizes against the same Google app.
+  localStorage.removeItem(LEGACY_CLIENT_ID_KEY);
+
+  if (accessToken && tokenExpiry > Date.now() + 30_000) {
+    state = "ready";
+    message = "Google Drive authorization restored for this browser session.";
+  } else {
+    clearTokenOnly();
+  }
+
+  function clearTokenOnly() {
+    accessToken = "";
+    tokenExpiry = 0;
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+  }
 
   function emit() {
     const detail = getStatus();
@@ -31,11 +55,35 @@
     updateDom(detail);
   }
 
-  function getStatus() { return { state, message, lastSyncedAt, authorized: isAuthorized(), enabled: localStorage.getItem(ENABLED_KEY) === "1" }; }
-  function isAuthorized() { return Boolean(accessToken && tokenExpiry > Date.now() + 30_000); }
-  function effectiveClientId() { return (localStorage.getItem(CLIENT_ID_KEY) || window.THUNDERSHADOW_CONFIG?.googleClientId || "").trim(); }
-  function setState(next, nextMessage) { state = next; if (nextMessage) message = nextMessage; emit(); }
-  function prettyTime(value) { if (!value) return "Never"; try { return new Date(value).toLocaleString(); } catch { return value; } }
+  function getStatus() {
+    return {
+      state,
+      message,
+      lastSyncedAt,
+      accountLabel,
+      authorized: isAuthorized(),
+      enabled: localStorage.getItem(ENABLED_KEY) === "1"
+    };
+  }
+
+  function isAuthorized() {
+    return Boolean(accessToken && tokenExpiry > Date.now() + 30_000);
+  }
+
+  function effectiveClientId() {
+    return String(window.THUNDERSHADOW_CONFIG?.googleClientId || "").trim();
+  }
+
+  function setState(next, nextMessage) {
+    state = next;
+    if (nextMessage) message = nextMessage;
+    emit();
+  }
+
+  function prettyTime(value) {
+    if (!value) return "Never";
+    try { return new Date(value).toLocaleString(); } catch { return value; }
+  }
 
   function updateDom(detail = getStatus()) {
     const status = document.getElementById("driveStatusText");
@@ -43,105 +91,211 @@
     const connect = document.getElementById("driveConnectBtn");
     const sync = document.getElementById("driveSyncNowBtn");
     const disconnect = document.getElementById("driveDisconnectBtn");
-    const input = document.getElementById("googleClientIdInput");
+
     if (status) status.textContent = detail.message;
-    if (detailText) detailText.textContent = detail.enabled ? `Last successful Drive sync: ${prettyTime(detail.lastSyncedAt)}. Local browser data remains authoritative when Drive is unavailable.` : "Local IndexedDB is the default store. Drive uses a hidden app-data file and can be disconnected at any time.";
-    if (connect) { connect.textContent = detail.authorized ? "Drive connected" : (detail.enabled ? "Reconnect Drive" : "Connect Google Drive"); connect.disabled = detail.authorized || detail.state === "connecting" || detail.state === "syncing"; }
-    if (sync) sync.disabled = !detail.authorized || detail.state === "syncing";
+    if (detailText) {
+      const account = detail.accountLabel ? ` Connected Google account: ${detail.accountLabel}.` : "";
+      detailText.textContent = detail.enabled
+        ? `Last successful Drive sync: ${prettyTime(detail.lastSyncedAt)}.${account} Local browser data remains authoritative when Drive is unavailable.`
+        : "Local IndexedDB is the default store. Drive uses a hidden app-data file and can be disconnected from this browser at any time.";
+    }
+    if (connect) {
+      connect.textContent = detail.authorized ? "Drive connected" : (detail.enabled ? "Reconnect Drive" : "Connect Google Drive");
+      connect.disabled = detail.authorized || detail.state === "connecting" || detail.state === "syncing";
+    }
+    // Sync Now remains usable when Drive was previously enabled. If the token
+    // has expired, clicking it starts a fresh user-authorized token flow.
+    if (sync) sync.disabled = !detail.enabled || detail.state === "connecting" || detail.state === "syncing";
     if (disconnect) disconnect.disabled = !detail.enabled && !detail.authorized;
-    if (input && !input.value) input.value = effectiveClientId();
   }
 
   function loadGis() {
     if (window.google?.accounts?.oauth2) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const existing = document.querySelector(`script[src="${GIS_SRC}"]`);
-      if (existing) { existing.addEventListener("load", resolve, { once: true }); existing.addEventListener("error", () => reject(new Error("Google Identity Services could not be loaded.")), { once: true }); return; }
-      const script = document.createElement("script"); script.src = GIS_SRC; script.async = true; script.defer = true; script.onload = resolve; script.onerror = () => reject(new Error("Google Identity Services could not be loaded.")); document.head.appendChild(script);
+      if (existing) {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", () => reject(new Error("Google Identity Services could not be loaded.")), { once: true });
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = GIS_SRC;
+      script.async = true;
+      script.defer = true;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("Google Identity Services could not be loaded."));
+      document.head.appendChild(script);
     });
+  }
+
+  async function parseGoogleError(response) {
+    let message = "";
+    let reason = "";
+    try {
+      const payload = await response.clone().json();
+      message = payload?.error?.message || payload?.error_description || "";
+      reason = payload?.error?.errors?.[0]?.reason || payload?.error?.status || payload?.error || "";
+    } catch {
+      try { message = (await response.clone().text()).slice(0, 500); } catch {}
+    }
+    return { message, reason };
+  }
+
+  async function rawDriveFetch(url, options = {}) {
+    if (!accessToken) throw new Error("Google Drive did not return an access token. Reconnect Drive and try again.");
+    const headers = { Authorization: `Bearer ${accessToken}`, ...(options.headers || {}) };
+    return fetch(url, { ...options, cache: "no-store", headers });
+  }
+
+  async function validateFreshToken() {
+    // Validate the exact bearer token against Drive before touching the sync file.
+    // about.get is supported by drive.appdata and also lets us show which account
+    // the browser actually authorized.
+    const response = await rawDriveFetch(`${DRIVE_API}/about?fields=user(displayName,emailAddress)`);
+    if (!response.ok) {
+      const info = await parseGoogleError(response);
+      const suffix = info.reason ? ` [${info.reason}]` : "";
+      const detail = info.message || `HTTP ${response.status}`;
+      throw new Error(`Google rejected the newly issued Drive token: ${detail}${suffix}`);
+    }
+    const data = await response.json();
+    accountLabel = data?.user?.emailAddress || data?.user?.displayName || "";
+    if (accountLabel) localStorage.setItem(ACCOUNT_LABEL_KEY, accountLabel);
+    return data;
   }
 
   async function initTokenClient() {
     const clientId = effectiveClientId();
-    if (!clientId) throw new Error("Add a Google OAuth Web Client ID in Settings before connecting Drive.");
+    if (!clientId || clientId.includes("YOUR_THUNDERSHADOW_PUBLIC_OAUTH_CLIENT_ID")) {
+      throw new Error("ThunderShadow's public Google OAuth Client ID has not been configured in js/config.js.");
+    }
+
     await loadGis();
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope: SCOPE,
       include_granted_scopes: true,
       callback: async (response) => {
-        if (response?.error) { setState("error", response.error_description || response.error); return; }
-        if (window.google?.accounts?.oauth2?.hasGrantedAllScopes && !google.accounts.oauth2.hasGrantedAllScopes(response, SCOPE)) {
-          setState("error", "Google Drive permission was not granted. Connect again and allow ThunderShadow app-data access.");
+        if (response?.error) {
+          const err = new Error(response.error_description || response.error);
+          setState("error", err.message);
+          if (connectPromise?.reject) connectPromise.reject(err);
+          connectPromise = null;
           return;
         }
+
+        if (!response?.access_token) {
+          const err = new Error("Google authorization completed but no access token was returned.");
+          setState("error", err.message);
+          if (connectPromise?.reject) connectPromise.reject(err);
+          connectPromise = null;
+          return;
+        }
+
+        if (window.google?.accounts?.oauth2?.hasGrantedAllScopes && !google.accounts.oauth2.hasGrantedAllScopes(response, SCOPE)) {
+          const err = new Error("Google Drive app-data permission was not granted. Connect again and allow ThunderShadow's Drive access.");
+          setState("error", err.message);
+          if (connectPromise?.reject) connectPromise.reject(err);
+          connectPromise = null;
+          return;
+        }
+
         accessToken = response.access_token;
         tokenExpiry = Date.now() + Math.max(60, Number(response.expires_in || 3600)) * 1000;
         sessionStorage.setItem(TOKEN_KEY, accessToken);
         sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(tokenExpiry));
         localStorage.setItem(ENABLED_KEY, "1");
-        setState("ready", "Google Drive authorized. Running bidirectional sync…");
-        try { await syncNow({ background: false }); }
-        catch (error) { setState("error", error.message); }
+
+        try {
+          setState("connecting", "Google authorized. Validating Drive access…");
+          await validateFreshToken();
+          setState("ready", "Google Drive authorized. Running bidirectional sync…");
+          await syncNow({ background: false });
+          if (connectPromise?.resolve) connectPromise.resolve();
+        } catch (error) {
+          // Keep the diagnostic message. Clear only the unusable local token;
+          // do not revoke the user's Google grant or affect other devices.
+          clearTokenOnly();
+          setState("reauth", `${error.message} Local browser data is safe; tap Reconnect Drive to try again.`);
+          if (connectPromise?.reject) connectPromise.reject(error);
+        } finally {
+          connectPromise = null;
+        }
+      },
+      error_callback: (error) => {
+        const err = new Error(error?.type === "popup_closed" ? "Google authorization window was closed." : "Google authorization could not be completed.");
+        setState("error", err.message);
+        if (connectPromise?.reject) connectPromise.reject(err);
+        connectPromise = null;
       }
     });
   }
 
   async function connect() {
+    if (connectPromise) return connectPromise.promise;
+    let resolve, reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    connectPromise = { promise, resolve, reject };
+
     try {
       setState("connecting", "Opening Google authorization…");
       await initTokenClient();
-      // Always show the account chooser on an explicit Connect/Reconnect action.
-      // This prevents a second device from silently authorizing a different
-      // signed-in Google account and therefore seeing a different appDataFolder.
-      tokenClient.requestAccessToken({ prompt: "select_account" });
-    } catch (error) { setState("error", error.message); throw error; }
+      // Explicit reconnect requests a fresh consent/account selection. This is
+      // intentional for a cross-device static app and avoids stale grants.
+      tokenClient.requestAccessToken({ prompt: "consent select_account", scope: SCOPE });
+    } catch (error) {
+      setState("error", error.message);
+      if (connectPromise?.reject) connectPromise.reject(error);
+      connectPromise = null;
+    }
+    return promise;
   }
 
   function authHeaders(extra = {}) {
-    if (!isAuthorized()) throw new Error("Google Drive authorization expired. Tap Reconnect Drive to continue cloud sync.");
+    if (!isAuthorized()) throw new Error("Google Drive authorization is not active in this browser. Tap Reconnect Drive.");
     return { Authorization: `Bearer ${accessToken}`, ...extra };
   }
 
   async function driveFetch(url, options = {}) {
     const response = await fetch(url, { ...options, cache: "no-store", headers: authHeaders(options.headers || {}) });
 
-    // 401 means the bearer token is no longer usable. Only this condition
-    // should force the UI back to Reconnect. Drive also uses 403 for quota,
-    // policy and permission errors; treating every 403 as an expired token
-    // caused false reconnect loops on some browsers/devices.
     if (response.status === 401) {
-      accessToken = ""; tokenExpiry = 0;
-      sessionStorage.removeItem(TOKEN_KEY);
-      sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
-      setState("reauth", "Google Drive authorization expired. Local saving continues; tap Reconnect Drive to resume cloud sync.");
-      throw new Error("Google Drive authorization expired.");
+      const info = await parseGoogleError(response);
+      clearTokenOnly();
+      const suffix = info.reason ? ` [${info.reason}]` : "";
+      const detail = info.message || "Google rejected the bearer token";
+      setState("reauth", `Drive authorization is no longer valid: ${detail}${suffix}. Local saving continues; tap Reconnect Drive.`);
+      throw new Error(`Drive authorization failed: ${detail}${suffix}`);
     }
 
     if (!response.ok) {
-      let details = "";
-      let reason = "";
-      try {
-        const payload = await response.json();
-        details = payload?.error?.message || "";
-        reason = payload?.error?.errors?.[0]?.reason || payload?.error?.status || "";
-      } catch {}
-      const suffix = reason ? ` [${reason}]` : "";
-      throw new Error(details ? `Google Drive ${response.status}: ${details}${suffix}` : `Google Drive request failed (${response.status})${suffix}.`);
+      const info = await parseGoogleError(response);
+      const suffix = info.reason ? ` [${info.reason}]` : "";
+      throw new Error(info.message ? `Google Drive ${response.status}: ${info.message}${suffix}` : `Google Drive request failed (${response.status})${suffix}.`);
     }
     return response;
   }
 
   function escapedDriveQueryName(name) { return name.replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+
   async function findFile() {
     const configured = window.THUNDERSHADOW_CONFIG?.driveFileName || "ThunderShadow.sync.json";
     const cachedId = localStorage.getItem(FILE_ID_KEY);
     if (cachedId) {
-      const check = await driveFetch(`${DRIVE_API}/files/${encodeURIComponent(cachedId)}?fields=id,name,modifiedTime,size`).catch(() => null);
+      const check = await driveFetch(`${DRIVE_API}/files/${encodeURIComponent(cachedId)}?fields=id,name,modifiedTime,size`).catch((error) => {
+        if (!isAuthorized()) throw error;
+        return null;
+      });
       if (check) return check.json();
       localStorage.removeItem(FILE_ID_KEY);
     }
-    const params = new URLSearchParams({ spaces: "appDataFolder", q: `name='${escapedDriveQueryName(configured)}' and trashed=false`, fields: "files(id,name,modifiedTime,size)", pageSize: "10", orderBy: "modifiedTime desc" });
+    const params = new URLSearchParams({
+      spaces: "appDataFolder",
+      q: `name='${escapedDriveQueryName(configured)}' and trashed=false`,
+      fields: "files(id,name,modifiedTime,size)",
+      pageSize: "10",
+      orderBy: "modifiedTime desc"
+    });
     const response = await driveFetch(`${DRIVE_API}/files?${params}`);
     const files = (await response.json()).files || [];
     const file = files[0] || null;
@@ -158,7 +312,9 @@
 
   async function uploadMedia(fileId, payload) {
     const response = await driveFetch(`${DRIVE_UPLOAD}/files/${encodeURIComponent(fileId)}?uploadType=media&fields=id,name,modifiedTime,size`, {
-      method: "PATCH", headers: { "Content-Type": "application/json; charset=utf-8" }, body: JSON.stringify(payload)
+      method: "PATCH",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(payload)
     });
     return response.json();
   }
@@ -166,7 +322,14 @@
   async function createFile(payload) {
     const name = window.THUNDERSHADOW_CONFIG?.driveFileName || "ThunderShadow.sync.json";
     const metadataResponse = await driveFetch(`${DRIVE_API}/files?fields=id,name,modifiedTime,size`, {
-      method: "POST", headers: { "Content-Type": "application/json; charset=utf-8" }, body: JSON.stringify({ name, parents: ["appDataFolder"], mimeType: "application/json", appProperties: { app: "ThunderShadow", format: "browser-sync-v1" } })
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        name,
+        parents: ["appDataFolder"],
+        mimeType: "application/json",
+        appProperties: { app: "ThunderShadow", format: "browser-sync-v1" }
+      })
     });
     const metadata = await metadataResponse.json();
     localStorage.setItem(FILE_ID_KEY, metadata.id);
@@ -175,9 +338,12 @@
 
   async function syncNow({ background = false } = {}) {
     if (!isAuthorized()) {
-      setState(localStorage.getItem(ENABLED_KEY) === "1" ? "reauth" : "disabled", localStorage.getItem(ENABLED_KEY) === "1" ? "Reconnect Google Drive to resume cloud sync. Local browser saving is unaffected." : "Google Drive sync is not enabled.");
+      if (!background && localStorage.getItem(ENABLED_KEY) === "1") return connect();
+      setState(localStorage.getItem(ENABLED_KEY) === "1" ? "reauth" : "disabled",
+        localStorage.getItem(ENABLED_KEY) === "1" ? "Reconnect Google Drive to resume cloud sync. Local browser saving is unaffected." : "Google Drive sync is not enabled.");
       throw new Error("Google Drive is not authorized.");
     }
+
     if (syncPromise) return syncPromise;
     syncPromise = (async () => {
       setState("syncing", background ? "Saving changes to Google Drive…" : "Synchronizing browser data with Google Drive…");
@@ -210,46 +376,54 @@
   function scheduleSync() {
     if (!isAuthorized()) return;
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(() => { if (document.visibilityState === "visible") syncNow({ background: true }).catch(() => {}); }, 1800);
+    syncTimer = setTimeout(() => {
+      if (document.visibilityState === "visible") syncNow({ background: true }).catch(() => {});
+    }, 1800);
   }
 
   async function disconnect() {
+    // LOCAL disconnect only. Do NOT call google.accounts.oauth2.revoke() here:
+    // Google's revoke operation removes the user's grant for this OAuth client
+    // and can break ThunderShadow sync on their other devices.
     clearTimeout(syncTimer);
-    const token = accessToken;
-    accessToken = ""; tokenExpiry = 0; tokenClient = null;
-    sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
-    localStorage.removeItem(ENABLED_KEY); localStorage.removeItem(FILE_ID_KEY);
-    if (token && window.google?.accounts?.oauth2?.revoke) await new Promise((resolve) => google.accounts.oauth2.revoke(token, () => resolve()));
-    setState("disabled", "Google Drive sync disconnected. ThunderShadow continues using browser storage only.");
-  }
-
-  function saveClientId(value) {
-    const cleaned = String(value || "").trim();
-    if (cleaned) localStorage.setItem(CLIENT_ID_KEY, cleaned); else localStorage.removeItem(CLIENT_ID_KEY);
+    clearTokenOnly();
     tokenClient = null;
-    setState(localStorage.getItem(ENABLED_KEY) === "1" ? "reauth" : "disabled", cleaned ? "OAuth client ID saved. Connect Google Drive when ready." : "OAuth client ID cleared. Browser storage remains active.");
+    localStorage.removeItem(ENABLED_KEY);
+    localStorage.removeItem(FILE_ID_KEY);
+    localStorage.removeItem(ACCOUNT_LABEL_KEY);
+    accountLabel = "";
+    setState("disabled", "Google Drive disconnected from this browser. Other devices are unaffected; ThunderShadow continues using browser storage only.");
   }
 
   function bindDom() {
     const connectBtn = document.getElementById("driveConnectBtn");
     const syncBtn = document.getElementById("driveSyncNowBtn");
     const disconnectBtn = document.getElementById("driveDisconnectBtn");
-    const saveBtn = document.getElementById("saveGoogleClientIdBtn");
-    const input = document.getElementById("googleClientIdInput");
     connectBtn?.addEventListener("click", () => connect().catch((error) => window.ThunderShadowApp?.showToast?.(error.message)));
     syncBtn?.addEventListener("click", () => syncNow({ background: false }).catch((error) => window.ThunderShadowApp?.showToast?.(error.message)));
     disconnectBtn?.addEventListener("click", () => disconnect().catch((error) => window.ThunderShadowApp?.showToast?.(error.message)));
-    saveBtn?.addEventListener("click", () => { saveClientId(input?.value); window.ThunderShadowApp?.showToast?.("Google OAuth client ID saved in this browser."); });
-    if (input) input.value = effectiveClientId();
     updateDom();
   }
 
   function initialize() {
-    bindDom(); emit();
+    bindDom();
+    emit();
     if (isAuthorized()) setTimeout(() => syncNow({ background: true }).catch(() => {}), 700);
-    addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && isAuthorized() && Date.now() + 60_000 < tokenExpiry) scheduleSync(); });
+    addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && isAuthorized() && Date.now() + 60_000 < tokenExpiry) scheduleSync();
+    });
   }
 
-  window.ThunderShadowDrive = { initialize, connect, disconnect, syncNow, scheduleSync, getStatus, isAuthorized, saveClientId };
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialize, { once: true }); else initialize();
+  window.ThunderShadowDrive = {
+    initialize,
+    connect,
+    disconnect,
+    syncNow,
+    scheduleSync,
+    getStatus,
+    isAuthorized
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialize, { once: true });
+  else initialize();
 })();
