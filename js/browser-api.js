@@ -339,12 +339,37 @@
   }
   function mergeForms(a, b, entryTombstones = {}, formId = a?.id || b?.id) {
     if (!a && !b) return null;
-    const base = deepClone(a && b ? newer(a, b) : (a || b));
-    const entries = mergeEntries(a?.entries || a?.questions || [], b?.entries || b?.questions || []).filter((entry) => objectTimestamp(entry) > (entryTombstones[`${formId}:${entry.entryNumber}`] || ""));
-    base.entries = entries; base.questions = entries;
-    base.maxEntryNumber = Math.max(Number(a.maxEntryNumber || 0), Number(b.maxEntryNumber || 0), entries.at(-1)?.entryNumber || 0);
-    base.revision = Math.max(Number(a.revision || 0), Number(b.revision || 0));
-    base.updatedAt = objectTimestamp(a) > objectTimestamp(b) ? a.updatedAt : b.updatedAt;
+
+    // Cross-device sync can legitimately merge a form that exists on only one
+    // device. Older Safari/iOS snapshots can also contain sparse/null records.
+    // Normalize each side defensively and never dereference a missing peer.
+    const left = a && typeof a === "object" ? normalizeForm(a, a) : null;
+    const right = b && typeof b === "object" ? normalizeForm(b, b) : null;
+    if (!left && !right) return null;
+
+    const base = deepClone(left && right ? newer(left, right) : (left || right));
+    const resolvedFormId = formId || base?.id || left?.id || right?.id || "";
+    const entries = mergeEntries(
+      left?.entries || left?.questions || [],
+      right?.entries || right?.questions || []
+    ).filter((entry) => objectTimestamp(entry) > (entryTombstones?.[`${resolvedFormId}:${entry.entryNumber}`] || ""));
+
+    base.entries = entries;
+    base.questions = entries;
+    const lastEntryNumber = entries.length ? Number(entries[entries.length - 1]?.entryNumber || 0) : 0;
+    base.maxEntryNumber = Math.max(
+      Number(left?.maxEntryNumber || 0),
+      Number(right?.maxEntryNumber || 0),
+      lastEntryNumber
+    );
+    base.revision = Math.max(Number(left?.revision || 0), Number(right?.revision || 0));
+
+    const leftTs = objectTimestamp(left);
+    const rightTs = objectTimestamp(right);
+    base.updatedAt = leftTs >= rightTs
+      ? (left?.updatedAt || left?.createdAt || base.updatedAt || base.createdAt)
+      : (right?.updatedAt || right?.createdAt || base.updatedAt || base.createdAt);
+
     return normalizeForm(base, base);
   }
   function mergeRuleObjects(a, b) {
@@ -369,7 +394,9 @@
     for (const [id, ts] of Object.entries(remotePayload.tombstones?.entries || {})) if (!combinedTombstones.entries[id] || combinedTombstones.entries[id] < ts) combinedTombstones.entries[id] = ts;
 
     const localForms = new Map(local.forms.map((form) => [form.id, form]));
-    const remoteForms = new Map((remotePayload.forms || []).map((form) => [form.id, normalizeForm(form, form)]));
+    const remoteForms = new Map((remotePayload.forms || [])
+      .filter((form) => form && typeof form === "object" && form.id)
+      .map((form) => [form.id, normalizeForm(form, form)]));
     const mergedForms = [];
     for (const id of new Set([...localForms.keys(), ...remoteForms.keys(), ...Object.keys(combinedTombstones.forms)])) {
       const merged = mergeForms(localForms.get(id), remoteForms.get(id), combinedTombstones.entries, id);

@@ -13,6 +13,8 @@
   const TOKEN_EXPIRY_KEY = "thundershadow:drive-token-expiry";
   const DEVICE_ID_KEY = "thundershadow:drive-device-id";
   const ACCOUNT_LABEL_KEY = "thundershadow:drive-account-label";
+  const REDIRECT_STATE_KEY = "thundershadow:drive-redirect-state";
+  const REDIRECT_STARTED_KEY = "thundershadow:drive-redirect-started";
 
   let tokenClient = null;
   let accessToken = sessionStorage.getItem(TOKEN_KEY) || "";
@@ -107,6 +109,114 @@
     // has expired, clicking it starts a fresh user-authorized token flow.
     if (sync) sync.disabled = !detail.enabled || detail.state === "connecting" || detail.state === "syncing";
     if (disconnect) disconnect.disabled = !detail.enabled && !detail.authorized;
+  }
+
+  function isStandalonePwa() {
+    return window.matchMedia?.("(display-mode: standalone)")?.matches === true
+      || window.navigator.standalone === true;
+  }
+
+  function isAppleMobile() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }
+
+  function useRedirectOAuthFallback() {
+    // Google Identity Services' token UX is popup-based. iOS/iPadOS Home-Screen
+    // apps can suppress that popup. Use a same-origin OAuth redirect only there.
+    return isStandalonePwa() && isAppleMobile();
+  }
+
+  function oauthRedirectUri() {
+    // The PWA start_url is the repository root (./). Keep the OAuth redirect on
+    // that canonical URL so iOS returns to the installed Home-Screen app.
+    const url = new URL("./", window.location.href);
+    url.hash = "";
+    url.search = "";
+    return url.href;
+  }
+
+  function randomState() {
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  function beginRedirectOAuth() {
+    const clientId = effectiveClientId();
+    if (!clientId || clientId.includes("YOUR_THUNDERSHADOW_PUBLIC_OAUTH_CLIENT_ID")) {
+      throw new Error("ThunderShadow's public Google OAuth Client ID has not been configured in js/config.js.");
+    }
+
+    const stateValue = randomState();
+    sessionStorage.setItem(REDIRECT_STATE_KEY, stateValue);
+    sessionStorage.setItem(REDIRECT_STARTED_KEY, "1");
+    localStorage.setItem(ENABLED_KEY, "1");
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: oauthRedirectUri(),
+      response_type: "token",
+      scope: SCOPE,
+      state: stateValue,
+      include_granted_scopes: "true",
+      prompt: "select_account"
+    });
+
+    // Same-window navigation is intentional: it works inside an installed
+    // iOS/iPadOS PWA where a popup window may not open.
+    window.location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  }
+
+  async function consumeRedirectOAuthResponse() {
+    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const hasOAuthResponse = fragment.has("access_token") || fragment.has("error");
+    if (!hasOAuthResponse) return false;
+
+    const expectedState = sessionStorage.getItem(REDIRECT_STATE_KEY) || "";
+    const returnedState = fragment.get("state") || "";
+    sessionStorage.removeItem(REDIRECT_STATE_KEY);
+    sessionStorage.removeItem(REDIRECT_STARTED_KEY);
+
+    // Remove access-token/error material from the visible URL immediately.
+    history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
+
+    if (!expectedState || returnedState !== expectedState) {
+      clearTokenOnly();
+      setState("reauth", "Google Drive authorization could not be verified. Tap Reconnect Drive and try again.");
+      return true;
+    }
+
+    if (fragment.has("error")) {
+      const description = fragment.get("error_description") || fragment.get("error") || "Google authorization was denied.";
+      clearTokenOnly();
+      setState("reauth", `${description} Local browser data is safe.`);
+      return true;
+    }
+
+    const token = fragment.get("access_token") || "";
+    if (!token) {
+      clearTokenOnly();
+      setState("reauth", "Google authorization returned without an access token. Tap Reconnect Drive.");
+      return true;
+    }
+
+    accessToken = token;
+    tokenExpiry = Date.now() + Math.max(60, Number(fragment.get("expires_in") || 3600)) * 1000;
+    sessionStorage.setItem(TOKEN_KEY, accessToken);
+    sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(tokenExpiry));
+    localStorage.setItem(ENABLED_KEY, "1");
+
+    try {
+      setState("connecting", "Google authorized. Validating Drive access…");
+      await validateFreshToken();
+      setState("ready", "Google Drive authorized. Running bidirectional sync…");
+      await syncNow({ background: false });
+    } catch (error) {
+      clearTokenOnly();
+      setState("reauth", `${error.message} Local browser data is safe; tap Reconnect Drive to try again.`);
+    }
+    return true;
   }
 
   function loadGis() {
@@ -238,10 +348,20 @@
     connectPromise = { promise, resolve, reject };
 
     try {
-      setState("connecting", "Opening Google authorization…");
+      setState("connecting", useRedirectOAuthFallback()
+        ? "Opening Google authorization in this Home-Screen app…"
+        : "Opening Google authorization…");
+
+      if (useRedirectOAuthFallback()) {
+        // Navigation leaves this JS context, so there is no promise to resolve
+        // here. The returned OAuth fragment is consumed on the next app load.
+        connectPromise = null;
+        beginRedirectOAuth();
+        return promise;
+      }
+
       await initTokenClient();
-      // Explicit reconnect requests a fresh consent/account selection. This is
-      // intentional for a cross-device static app and avoids stale grants.
+      // Normal browsers keep the preferred Google Identity Services popup flow.
       tokenClient.requestAccessToken({ prompt: "consent select_account", scope: SCOPE });
     } catch (error) {
       setState("error", error.message);
@@ -405,10 +525,19 @@
     updateDom();
   }
 
-  function initialize() {
+  async function initialize() {
     bindDom();
     emit();
-    if (isAuthorized()) setTimeout(() => syncNow({ background: true }).catch(() => {}), 700);
+
+    const consumedRedirect = await consumeRedirectOAuthResponse().catch((error) => {
+      setState("reauth", `Google Drive authorization failed: ${error.message}. Local browser data is safe.`);
+      return true;
+    });
+
+    if (!consumedRedirect && isAuthorized()) {
+      setTimeout(() => syncNow({ background: true }).catch(() => {}), 700);
+    }
+
     addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible" && isAuthorized() && Date.now() + 60_000 < tokenExpiry) scheduleSync();
     });
