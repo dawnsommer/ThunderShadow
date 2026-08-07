@@ -303,7 +303,9 @@
   function previewPackage(payload) {
     const forms = Array.isArray(payload?.forms) ? payload.forms : [];
     const rules = Array.isArray(payload?.rules) ? payload.rules : [];
-    return { integrity: "verified JSON", schemaVersion: payload?.schemaVersion || 1, counts: { forms: forms.length, questionLogs: forms.reduce((sum, form) => sum + (form.entries || form.questions || []).length, 0), rules: rules.length, reviews: rules.reduce((sum, rule) => sum + (rule.reviewHistory || []).length, 0) } };
+    const validForms = forms.filter((form) => form && typeof form === "object");
+    const validRules = rules.filter((rule) => rule && typeof rule === "object");
+    return { integrity: "verified JSON", schemaVersion: payload?.schemaVersion || 1, counts: { forms: validForms.length, questionLogs: validForms.reduce((sum, form) => sum + (Array.isArray(form.entries) ? form.entries.length : (Array.isArray(form.questions) ? form.questions.length : 0)), 0), rules: validRules.length, reviews: validRules.reduce((sum, rule) => sum + (Array.isArray(rule.reviewHistory) ? rule.reviewHistory.length : 0), 0) } };
   }
 
   function validateBackupPayload(payload) {
@@ -314,8 +316,15 @@
 
   async function replacePackage(payload, { preserveBackups = true } = {}) {
     validateBackupPayload(payload);
-    const forms = payload.forms.map((form) => normalizeForm({ ...form, entries: (form.entries || form.questions || []).map((entry) => normalizeEntry(entry)) }));
-    const rules = Array.isArray(payload.rules) ? payload.rules.map((rule) => normalizeRule({ ...rule, pattern: canonicalPattern(rule.pattern), aliases: rule.aliases || [], reviewHistory: rule.reviewHistory || [] }, null)) : [];
+    const forms = payload.forms
+      .filter((form) => form && typeof form === "object" && form.id)
+      .map((form) => {
+        const rawEntries = Array.isArray(form.entries) ? form.entries : (Array.isArray(form.questions) ? form.questions : []);
+        return normalizeForm({ ...form, entries: rawEntries.filter((entry) => entry && typeof entry === "object").map((entry) => normalizeEntry(entry)) });
+      });
+    const rules = Array.isArray(payload.rules) ? payload.rules
+      .filter((rule) => rule && typeof rule === "object")
+      .map((rule) => normalizeRule({ ...rule, pattern: canonicalPattern(rule.pattern), aliases: Array.isArray(rule.aliases) ? rule.aliases : [], reviewHistory: Array.isArray(rule.reviewHistory) ? rule.reviewHistory : [] }, null)) : [];
     await clear(STORES.forms); await clear(STORES.rules);
     for (const form of forms) await put(STORES.forms, form);
     for (const rule of rules) await put(STORES.rules, rule);
@@ -393,7 +402,7 @@
     for (const [id, ts] of Object.entries(remotePayload.tombstones?.rules || {})) if (!combinedTombstones.rules[id] || combinedTombstones.rules[id] < ts) combinedTombstones.rules[id] = ts;
     for (const [id, ts] of Object.entries(remotePayload.tombstones?.entries || {})) if (!combinedTombstones.entries[id] || combinedTombstones.entries[id] < ts) combinedTombstones.entries[id] = ts;
 
-    const localForms = new Map(local.forms.map((form) => [form.id, form]));
+    const localForms = new Map((local.forms || []).filter((form) => form && typeof form === "object" && form.id).map((form) => [form.id, form]));
     const remoteForms = new Map((remotePayload.forms || [])
       .filter((form) => form && typeof form === "object" && form.id)
       .map((form) => [form.id, normalizeForm(form, form)]));
@@ -404,8 +413,8 @@
       if (merged && objectTimestamp(merged) > deletedAt) mergedForms.push(merged);
     }
 
-    const localRules = new Map(local.rules.map((rule) => [rule.id, rule]));
-    const remoteRules = new Map((remotePayload.rules || []).map((rule) => [rule.id, rule]));
+    const localRules = new Map((local.rules || []).filter((rule) => rule && typeof rule === "object" && rule.id).map((rule) => [rule.id, rule]));
+    const remoteRules = new Map((remotePayload.rules || []).filter((rule) => rule && typeof rule === "object" && rule.id).map((rule) => [rule.id, rule]));
     const mergedRules = [];
     for (const id of new Set([...localRules.keys(), ...remoteRules.keys(), ...Object.keys(combinedTombstones.rules)])) {
       const merged = mergeRuleObjects(localRules.get(id), remoteRules.get(id));
