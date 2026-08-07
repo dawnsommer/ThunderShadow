@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07111f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ThunderShadow">
+  <meta name="description" content="ThunderShadow — a browser-local NBME/CMS rule logger with optional Google Drive sync.">
+  <title>ThunderShadow</title>
+  <script src="js/theme-init.js"></script>
+  <script src="js/uuid.js"></script>
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="storm" aria-hidden="true">
+    <div class="storm__clouds"></div>
+    <div class="storm__rain storm__rain--near"></div>
+    <div class="storm__rain storm__rain--far"></div>
+    <div class="storm__flash"></div>
+  </div>
+
+  <div id="appShell" class="app-shell" data-scale="100">
+    <header class="topbar">
+      <div class="brand" aria-label="ThunderShadow home">
+        <div class="brand__mark" aria-hidden="true">ϟ</div>
+        <div>
+          <div class="brand__name">ThunderShadow</div>
+          <div class="brand__tagline">NBME/CMS rapid rule logger</div>
+        </div>
+      </div>
+
+      <div id="libraryTopActions" class="topbar__center">
+        <button id="newFormTopBtn" class="button button--primary" type="button">
+          <span aria-hidden="true">＋</span>
+          New form
+        </button>
+      </div>
+
+      <div id="loggerTopActions" class="topbar__center topbar__center--logger" hidden>
+        <button id="topPrevBtn" class="button button--ghost button--nav" type="button" aria-label="Previous entry">
+          <span aria-hidden="true">←</span>
+          Previous
+        </button>
+        <div class="question-position" aria-live="polite">
+          <span id="topQuestionNumber">1</span>
+          <span class="question-position__divider">of</span>
+          <span id="topQuestionTotal">50</span>
+        </div>
+        <button id="topNextBtn" class="button button--ghost button--nav" type="button" aria-label="Next entry">
+          Next
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+
+      <div class="topbar__tools">
+        <label class="theme-control" aria-label="Color theme"><select id="themeModeSelect"><option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option></select></label>
+        <button id="uiModeToggleBtn" class="mode-toggle" type="button" aria-pressed="false" title="Use larger tablet-style controls"><span aria-hidden="true">◫</span><span id="uiModeToggleText">Touch UI</span></button>
+        <button id="syncStatusBtn" class="sync-status" type="button" data-state="synced" aria-label="Synchronization status">
+          <i></i><span id="syncStatusText">Saved locally</span>
+        </button>
+        <button id="retrySyncBtn" class="icon-button" type="button" aria-label="Retry synchronization" title="Retry sync" hidden>↻</button>
+        <div class="zoom-control" aria-label="Interface scale">
+          <button id="zoomOutBtn" class="icon-button" type="button" aria-label="Zoom out">−</button>
+          <button id="zoomFitBtn" class="zoom-control__value" type="button" aria-label="Fit interface to window">100%</button>
+          <button id="zoomInBtn" class="icon-button" type="button" aria-label="Zoom in">＋</button>
+        </div>
+        <button id="homeBtn" class="icon-button" type="button" aria-label="Open form library" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H4.5A1.5 1.5 0 0 1 3 19.5z"/></svg>
+        </button>
+        <button id="backupBtn" class="icon-button" type="button" aria-label="Backup all data">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+        <button id="restoreBackupBtn" class="icon-button" type="button" aria-label="Restore JSON backup" title="Restore JSON backup">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0 4 4m-4-4-4 4M5 8V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3"/></svg>
+        </button>
+        <input id="restoreInput" type="file" accept="application/json,.json" hidden>
+      </div>
+    </header>
+
+    <nav id="areaNav" class="area-nav" aria-label="Primary areas">
+      <button type="button" data-area="library">Library</button>
+      <button type="button" data-area="logger" class="is-active">Logger</button>
+      <button type="button" data-area="analysis">Analysis</button>
+      <button type="button" data-area="review">Active Rules</button>
+      <button type="button" data-area="settings">Settings</button>
+    </nav>
+
+    <main class="workspace">
+      <section id="libraryView" class="view view--library" aria-label="Form library">
+        <div class="library-layout">
+          <section class="panel panel--library-list">
+            <div class="panel__heading">
+              <div>
+                <p class="eyebrow">Form library</p>
+                <h1>Your logged forms</h1>
+              </div>
+              <div class="panel__heading-actions">
+                <label class="search-box">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                  <input id="formSearchInput" type="search" placeholder="Search forms" autocomplete="off">
+                </label>
+                <button id="newFormBtn" class="button button--primary" type="button">New form</button>
+              </div>
+            </div>
+
+            <div id="emptyLibrary" class="empty-state" hidden>
+              <div class="empty-state__icon" aria-hidden="true">ϟ</div>
+              <h2>No forms yet</h2>
+              <p>Create a form and log only the questions worth reviewing.</p>
+              <button id="emptyNewFormBtn" class="button button--primary" type="button">Create first form</button>
+            </div>
+
+            <div id="formsGrid" class="forms-grid" aria-live="polite"></div>
+          </section>
+
+          <aside class="panel panel--analysis">
+            <div class="panel__heading panel__heading--compact">
+              <div>
+                <p class="eyebrow">Internal analysis</p>
+                <h2>Pattern frequency</h2>
+              </div>
+              <span id="analysisScopeBadge" class="badge">All forms</span>
+            </div>
+
+            <div class="analysis-summary">
+              <div class="stat-card">
+                <span class="stat-card__label">Forms</span>
+                <strong id="totalFormsStat">0</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-card__label">Logged Qs</span>
+                <strong id="totalLoggedStat">0</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-card__label">Wrong 1–4</span>
+                <strong id="totalWrongStat">0</strong>
+              </div>
+              <div class="stat-card">
+                <span class="stat-card__label">Unstable 5–7</span>
+                <strong id="totalUnstableStat">0</strong>
+              </div>
+            </div>
+
+            <div class="analysis-section">
+              <div class="analysis-section__title">
+                <h3>Error codes</h3>
+                <span class="muted">Frequency</span>
+              </div>
+              <div id="errorFrequencyList" class="frequency-list"></div>
+            </div>
+
+            <div class="analysis-section analysis-section--patterns">
+              <div class="analysis-section__title">
+                <h3>Reasoning patterns</h3>
+                <span class="muted">Top recurring</span>
+              </div>
+              <div id="patternFrequencyList" class="frequency-list"></div>
+            </div>
+
+            <div class="analysis-section analysis-section--speed">
+              <div class="analysis-section__title">
+                <h3>Speed flags</h3>
+                <span class="muted">Frequency</span>
+              </div>
+              <div id="speedFrequencyList" class="frequency-list"></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="loggerView" class="view view--logger" aria-label="Entry logger" hidden>
+        <div class="logger-layout">
+          <aside class="panel question-rail" aria-label="Entry navigator">
+            <div class="question-rail__header">
+              <div>
+                <p id="loggerFormSubject" class="eyebrow">NBME / CMS</p>
+                <h1 id="loggerFormName">Form</h1>
+              </div>
+              <span id="saveState" class="save-state">Saved</span>
+              <button id="selectEntriesBtn" class="button button--subtle entry-select-toggle" type="button" aria-pressed="false">Select</button>
+            </div>
+
+            <div id="questionRangeTabs" class="range-tabs" aria-label="Entry filters">
+              <button class="range-tab is-active" type="button" data-entry-filter="active">Active</button>
+              <button class="range-tab" type="button" data-entry-filter="deleted">Deleted Entries</button>
+            </div>
+            <div id="questionNumberGrid" class="question-grid" aria-label="Entries"></div>
+            <div id="mobileSelectionBar" class="mobile-selection-bar" hidden>
+              <strong id="mobileSelectionCount">0 selected</strong>
+              <button id="mobileCopyCodesBtn" class="button button--primary" type="button">Copy codes</button>
+              <button id="mobileSelectAllBtn" class="button button--subtle" type="button">All</button>
+              <button id="mobileClearSelectionBtn" class="button button--subtle" type="button">Clear</button>
+              <button id="mobileSelectionDoneBtn" class="button button--ghost" type="button">Done</button>
+            </div>
+            <button id="newEntryBtn" class="button button--primary button--full" type="button">＋ New Entry</button>
+            <div class="selection-tools">
+              <p>⌘/Ctrl-click or Shift-click entries to select for copying.</p>
+              <button id="copyCodesBtn" class="button button--subtle" type="button">Copy Codes</button>
+              <button id="selectAllEntriesBtn" class="button button--subtle" type="button">Select all logged</button>
+              <button id="clearEntrySelectionBtn" class="button button--subtle" type="button">Clear selection</button>
+            </div>
+
+            <div class="question-rail__legend">
+              <span><i class="legend-dot legend-dot--blank"></i>Draft</span>
+              <span><i class="legend-dot legend-dot--logged"></i>Logged</span>
+              <span><i class="legend-dot legend-dot--speed"></i>Selected</span>
+            </div>
+
+            <div class="question-rail__footer">
+              <div class="progress-text">
+                <span>Logged</span>
+                <strong id="loggerProgressText">0 entries</strong>
+              </div>
+              <div class="progress-track"><div id="loggerProgressBar" class="progress-track__fill"></div></div>
+              <button id="exportFormBtn" class="button button--ghost button--full" type="button">
+                Export form TSV
+              </button>
+              <button id="finishFormBtn" class="button button--subtle button--full" type="button">Finish Form</button>
+            </div>
+          </aside>
+
+          <section class="panel logger-panel">
+            <div class="logger-panel__header">
+              <div>
+                <p class="eyebrow">Rapid log</p>
+                <h2>Entry <span id="currentQuestionNumber">1</span></h2>
+              </div>
+              <div class="entry-delete-actions"><button id="clearQuestionBtn" class="button button--danger-ghost" type="button">Delete Entry</button><button id="permanentDeleteEntryBtn" class="button button--danger" type="button" hidden>Delete permanently</button></div>
+            </div>
+
+            <div class="logger-content">
+              <section class="choice-section choice-section--errors">
+                <div class="section-heading">
+                  <div>
+                    <h3>Error code</h3>
+                    <p>What type of result or miss occurred? · press 1–7</p>
+                  </div>
+                </div>
+                <div id="errorCodeRows" class="option-stack option-stack--errors"></div>
+              </section>
+
+              <section class="choice-section choice-section--patterns">
+                <div class="section-heading">
+                  <div>
+                    <div class="pattern-heading-row">
+                      <h3>Reasoning Pattern</h3>
+                      <button id="patternGuideBtn" class="pattern-info-button" type="button" aria-label="Open reasoning pattern guide" title="View pattern definitions and fixes">i</button>
+                    </div>
+                    <p>Optional — choose the earliest reasoning operation that failed.</p>
+                  </div>
+                </div>
+                <div id="patternRows" class="option-stack option-stack--patterns"></div>
+              </section>
+
+              <section class="rule-section">
+                <div class="rule-section__top">
+                  <div class="section-heading section-heading--inline">
+                    <div>
+                      <h3>Reasoning Note — optional</h3>
+                      <p>What internal thought is not visible in the screenshot?</p>
+                    </div>
+                  </div>
+                </div>
+                <textarea id="manualRuleInput" rows="3" maxlength="12000" spellcheck="true" aria-label="Reasoning Note"></textarea>
+
+                <div class="speed-area">
+                  <div>
+                    <h3>Speed flags</h3>
+                    <p>What execution behavior contributed? Optional; multiple selections allowed.</p>
+                  </div>
+                  <div id="speedFlagButtons" class="speed-buttons"></div>
+                </div>
+              </section>
+            </div>
+
+            <div class="logger-panel__footer">
+                <div class="shortcut-hint">
+                  <kbd>1–7</kbd> code
+                  <kbd>⇧1–7</kbd> pattern
+                  <kbd>⌥1–6</kbd> speed
+                  <kbd>⌘/Ctrl + Enter</kbd> save & next
+                <kbd>[</kbd><kbd>]</kbd> navigate
+              </div>
+              <div class="footer-actions">
+                <button id="bottomPrevBtn" class="button button--ghost" type="button">Previous</button>
+                <button id="saveNextBtn" class="button button--primary button--save" type="button">Save & next</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="ruleLibraryView" class="view v3-view" aria-label="Personal rule library" hidden>
+        <div class="v3-scroll">
+          <div class="v3-heading">
+            <div><p class="eyebrow">Personal rule library</p><h1>Rules worth retaining</h1><p>Exact wording stays separate unless you confirm a merge.</p></div>
+            <div class="v3-heading__actions"><button id="exportRulesBtn" class="button button--ghost" type="button">Active-rules TSV</button></div>
+          </div>
+          <section class="panel v3-panel">
+            <div class="panel__heading panel__heading--compact"><div><h2>Saved rules</h2><p class="muted">Edit wording, status, notes, or open the source entry.</p></div><span id="ruleCountBadge" class="badge">0 rules</span></div>
+            <div id="personalRulesList" class="v3-list"></div>
+          </section>
+          <section class="panel v3-panel">
+            <div class="panel__heading panel__heading--compact"><div><h2>Rules found in logs</h2><p class="muted">Add useful Reasoning Notes without changing the logging path.</p></div></div>
+            <div id="ruleCandidatesList" class="v3-list v3-list--compact"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="analysisView" class="view v3-view" aria-label="Longitudinal analysis" hidden>
+        <div class="v3-scroll">
+          <div class="v3-heading">
+            <div><p class="eyebrow">Version 3 analysis</p><h1>Longitudinal patterns</h1><p>Counts and descriptive associations derived from browser-local logs.</p></div>
+            <div class="v3-heading__actions"><button id="exportAnalyticsBtn" class="button button--ghost" type="button">Analytics JSON</button><button id="exportChatgptBtn" class="button button--primary" type="button">ChatGPT package</button></div>
+          </div>
+          <section class="panel v3-panel analytics-filters">
+            <label class="field"><span>From</span><input id="analysisStartDate" type="date"></label>
+            <label class="field"><span>Through</span><input id="analysisEndDate" type="date"></label>
+            <label class="field field--wide"><span>Forms</span><select id="analysisForms" multiple aria-label="Filter forms"></select></label>
+            <button id="applyAnalysisFilters" class="button button--primary" type="button">Apply filters</button>
+            <button id="clearAnalysisFilters" class="button button--ghost" type="button">Clear</button>
+          </section>
+          <div id="analysisCards" class="v3-stat-grid"></div>
+          <div class="v3-grid v3-grid--two">
+            <section class="panel v3-panel"><h2>Error-code distribution</h2><div id="analysisErrors" class="v3-table-wrap"></div></section>
+            <section class="panel v3-panel"><h2>Reasoning patterns</h2><div id="analysisPatterns" class="analytics-pattern-grid"></div></section>
+            <section class="panel v3-panel"><h2>Speed issues</h2><div id="analysisSpeed" class="v3-table-wrap"></div></section>
+            <section class="panel v3-panel"><h2>Combined-pattern findings</h2><div id="analysisCombinations" class="v3-list v3-list--compact"></div></section>
+          </div>
+          <section class="panel v3-panel"><h2>Recent trend table</h2><div id="analysisTrends" class="v3-table-wrap"></div></section>
+        </div>
+      </section>
+
+      <section id="reviewView" class="view v3-view" aria-label="Active rules review" hidden>
+        <div class="v3-scroll">
+          <div class="v3-heading"><div><p class="eyebrow">Active Rules</p><h1>Daily rule review</h1><p>A short due set ordered by active status, recurrence, and review date.</p></div><span id="reviewDueBadge" class="badge">0 due</span></div>
+          <div id="reviewRulesList" class="review-list"></div>
+        </div>
+      </section>
+
+      <section id="settingsView" class="view v3-view" aria-label="Settings and exports" hidden>
+        <div class="v3-scroll v3-scroll--narrow">
+          <div class="v3-heading"><div><p class="eyebrow">Settings</p><h1>Browser data, Drive sync and exports</h1><p>Data is stored locally in this browser by default. Google Drive sync is optional; ThunderShadow makes no external AI calls.</p></div></div>
+          <section class="panel v3-panel preference-card">
+            <div><h2>Display mode</h2><p class="muted">Touch mode uses larger targets and a tablet-style logger on this browser only.</p></div>
+            <div class="segmented-control" role="group" aria-label="Display mode">
+              <button id="desktopModeBtn" type="button" data-ui-mode="desktop">Desktop</button>
+              <button id="touchModeBtn" type="button" data-ui-mode="touch">Touch</button>
+            </div>
+          </section>
+          <section class="panel v3-panel drive-sync-card">
+            <div class="drive-sync-card__heading">
+              <div>
+                <h2>Google Drive sync <span class="badge">optional</span></h2>
+                <p id="driveStatusText" class="muted">Browser storage is active. Google Drive sync is optional.</p>
+                <p id="driveDetailText" class="muted">Local IndexedDB is the default store.</p>
+              </div>
+              <div class="v3-heading__actions">
+                <button id="driveConnectBtn" class="button button--primary" type="button">Connect Google Drive</button>
+                <button id="driveSyncNowBtn" class="button button--ghost" type="button" disabled>Sync now</button>
+                <button id="driveDisconnectBtn" class="button button--subtle" type="button" disabled>Disconnect</button>
+              </div>
+            </div>
+            <div class="drive-config-row">
+              <label class="field field--wide"><span>Google OAuth Web Client ID</span><input id="googleClientIdInput" type="text" inputmode="text" autocomplete="off" placeholder="xxxx.apps.googleusercontent.com"></label>
+              <button id="saveGoogleClientIdBtn" class="button button--ghost" type="button">Save client ID</button>
+            </div>
+            <p class="muted drive-sync-note">Drive uses the private <code>appDataFolder</code> scope. After authorization, changes sync automatically while the Google access token remains valid; browser storage continues working if Drive is offline or needs reconnection.</p>
+          </section>
+          <section class="panel v3-panel settings-grid">
+            <div><h2>Exports</h2><p class="muted">Download portable files generated from browser-local data.</p></div>
+            <button id="exportAllFormsBtn" class="button button--ghost" type="button">All-forms longitudinal TSV</button>
+            <button id="settingsExportRulesBtn" class="button button--ghost" type="button">Active-rules TSV</button>
+            <button id="settingsExportAnalyticsBtn" class="button button--ghost" type="button">Analytics JSON</button>
+            <button id="settingsExportChatgptBtn" class="button button--primary" type="button">ChatGPT Analysis Markdown</button>
+          </section>
+          <section class="panel v3-panel">
+            <div class="panel__heading panel__heading--compact"><div><h2>Verified browser snapshots</h2><p id="backupDirectoryText" class="muted">Loading backup configuration…</p></div><div class="v3-heading__actions"><button id="refreshBackupsBtn" class="button button--ghost" type="button">Refresh</button><button id="createBackupBtn" class="button button--primary" type="button">Back up now</button></div></div>
+            <div id="backupList" class="v3-list v3-list--compact"></div>
+          </section>
+          <section class="panel v3-panel portable-backup">
+            <div><h2>Encrypted portable backup</h2><p class="muted">AES-256-GCM archive with a PBKDF2-SHA-256 derived key. The passphrase is used only for this operation and is never saved.</p></div>
+            <label class="field"><span>Passphrase</span><input id="portablePassphrase" type="password" minlength="8" maxlength="1024" autocomplete="new-password" placeholder="At least 8 characters"></label>
+            <div class="v3-heading__actions">
+              <button id="exportEncryptedBtn" class="button button--primary" type="button">Export encrypted archive</button>
+              <button id="previewEncryptedBtn" class="button button--ghost" type="button">Preview encrypted import</button>
+              <input id="encryptedImportInput" type="file" accept=".tsbackup,application/octet-stream" hidden>
+            </div>
+            <p id="portableBackupStatus" class="muted" aria-live="polite"></p>
+          </section>
+          <section class="panel v3-panel"><h2>Interface scale</h2><p class="muted">Use the − / Fit / + controls in the header. Scale remains stored locally in this browser.</p></section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="formDialog" class="dialog">
+    <form id="formCreateForm" method="dialog" class="dialog__surface">
+      <div class="dialog__header">
+        <div>
+          <p id="formDialogEyebrow" class="eyebrow">New session</p>
+          <h2 id="formDialogTitle">Create form</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="formDialog" aria-label="Close">×</button>
+      </div>
+      <div class="dialog__body">
+        <label class="field">
+          <span>Form name</span>
+          <input id="newFormName" type="text" placeholder="e.g. NBME 14 or CMS IM 8" required maxlength="80">
+        </label>
+        <div class="field-grid">
+          <label class="field">
+            <span>Original total form length <em>optional</em></span>
+            <input id="newFormQuestionCount" type="number" min="1" max="1000" inputmode="numeric">
+            <span class="quick-fill"><button type="button" data-length="50">50</button><button type="button" data-length="100">100</button><button type="button" data-length="160">160</button><button type="button" data-length="200">200</button></span>
+          </label>
+          <label class="field">
+            <span>Date</span>
+            <input id="newFormDate" type="date" required>
+          </label>
+        </div>
+        <label class="field">
+          <span>Subject <em>optional</em></span>
+          <input id="newFormSubject" type="text" placeholder="e.g. Internal Medicine" maxlength="80">
+        </label>
+        <div class="field-grid">
+          <label class="field"><span>Exam type <em>optional</em></span><input id="newFormExamType" type="text" placeholder="e.g. NBME, CMS" maxlength="80"></label>
+          <label class="field"><span>Expected screenshot count <em>optional</em></span><input id="newFormExpectedScreenshots" type="number" min="0" max="1000" inputmode="numeric"></label>
+        </div>
+      </div>
+      <div class="dialog__footer">
+        <button class="button button--ghost" type="button" data-close-dialog="formDialog">Cancel</button>
+        <button id="formDialogSubmitBtn" class="button button--primary" type="submit">Create & open</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="patternGuideDialog" class="dialog pattern-guide-dialog" aria-labelledby="patternGuideTitle" aria-describedby="patternGuideSubtitle">
+    <div class="dialog__surface pattern-guide-surface">
+      <header class="pattern-guide-header">
+        <div>
+          <p class="eyebrow">Reasoning support</p>
+          <h2 id="patternGuideTitle">Reasoning Pattern Guide</h2>
+          <p id="patternGuideSubtitle">Choose the earliest reasoning operation that failed. Leave blank when no clear pattern applies.</p>
+        </div>
+        <button id="patternGuideCloseBtn" class="icon-button" type="button" aria-label="Close reasoning pattern guide">×</button>
+      </header>
+      <div class="pattern-guide-scroll">
+        <div class="pattern-guide-grid">
+          <article class="pattern-guide-card" data-pattern-tone="1"><header><strong>P1 — TASK</strong><kbd>⇧1</kbd></header><p>You solved a different question from the one NBME asked.</p><p><b>Use when:</b> The requested output was misunderstood: diagnosis, cause, next step, treatment, prevention, or complication.</p><p><b>Fix:</b> Translate the final question into a 2–4 word command.</p></article>
+          <article class="pattern-guide-card" data-pattern-tone="2"><header><strong>P2 — STABILITY</strong><kbd>⇧2</kbd></header><p>Failed to classify instability, acuity, or an immediate threat before choosing the pathway.</p><p><b>Use when:</b> Instability, shock, active seizure, severe bleeding, or another immediate threat should have overridden the normal pathway.</p><p><b>Fix:</b> Check for an immediate threat before applying the routine algorithm.</p></article>
+          <article class="pattern-guide-card" data-pattern-tone="3"><header><strong>P3 — SEQUENCE</strong><kbd>⇧3</kbd></header><p>Recognized the clinical problem but selected the wrong stage of diagnosis or management.</p><p><b>Use when:</b> The diagnosis was understood, but the wrong diagnostic or management stage was selected.</p><p><b>Fix:</b> Locate the current node: stabilize → test → confirm → treat → escalate.</p></article>
+          <article class="pattern-guide-card" data-pattern-tone="4"><header><strong>P4 — FRAME</strong><kbd>⇧4</kbd></header><p>Built the wrong illness script or added an unsupported assumption before comparing choices.</p><p><b>Use when:</b> The case was represented incorrectly, anchored early, or altered by an unsupported assumption.</p><p><b>Fix:</b> Rebuild the case using only facts supplied in the stem.</p></article>
+          <article class="pattern-guide-card" data-pattern-tone="5"><header><strong>P5 — HINGE</strong><kbd>⇧5</kbd></header><p>The candidate answers were reasonable, but the decisive discriminator was missed or underweighted.</p><p><b>Use when:</b> The options were plausible, but the decisive discriminator was missed or underweighted.</p><p><b>Fix:</b> Find the single clue the selected answer cannot explain.</p></article>
+          <article class="pattern-guide-card" data-pattern-tone="6"><header><strong>P6 — TIMELINE</strong><kbd>⇧6</kbd></header><p>The timing, onset, duration, progression, event order, or treatment exposure determined the answer.</p><p><b>Use when:</b> Onset, interval, progression, treatment exposure, or event order determined the answer.</p><p><b>Fix:</b> Write: trigger → interval → presentation.</p></article>
+          <article class="pattern-guide-card" data-pattern-tone="7"><header><strong>P7 — MODIFIER</strong><kbd>⇧7</kbd></header><p>Knew the usual rule but failed to adjust it for a patient-specific constraint or context.</p><p><b>Use when:</b> Pregnancy, age, comorbidity, contraindication, organ function, or setting changed the usual rule.</p><p><b>Fix:</b> State: normally X; because of Y, choose Z.</p></article>
+        </div>
+        <section class="pattern-decision-tree" aria-labelledby="patternDecisionTitle">
+          <h3 id="patternDecisionTitle">Quick decision path</h3>
+          <div class="pattern-decision-list"><span>Wrong task? → TASK</span><span>Missed instability? → STABILITY</span><span>Wrong diagnostic/management stage? → SEQUENCE</span><span>Wrong illness script or unsupported assumption? → FRAME</span><span>Timing/course decided it? → TIMELINE</span><span>Patient-specific constraint changed the rule? → MODIFIER</span><span>Otherwise missed the decisive discriminator? → HINGE</span></div>
+          <p><b>Tie-breaker:</b> When two patterns apply, select the earliest causal failure rather than the final visible mistake.</p>
+          <ul><li>Hypotensive patient sent to CT before resuscitation → STABILITY, not SEQUENCE</li><li>Understood stability but jumped directly to surgery → SEQUENCE</li><li>Recent infection caused premature anchoring before comparing clues → FRAME</li><li>Correct candidate pair but ignored normal complement → HINGE</li><li>Ignored the two-day interval after infection → TIMELINE</li><li>Used the standard drug despite pregnancy → MODIFIER</li></ul>
+        </section>
+        <footer class="pattern-guide-note"><p>Tie-breaker: when two patterns seem possible, choose the earliest causal failure in your reasoning.</p><p>Do not use a reasoning pattern merely to repeat the Error Code.</p></footer>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="exportDialog" class="dialog dialog--confirm">
+    <form method="dialog" class="dialog__surface">
+      <div class="dialog__header"><div><p class="eyebrow">TSV validation</p><h2>Screenshot-count check</h2></div></div>
+      <div id="exportValidationBody" class="dialog__body"></div>
+      <div class="dialog__footer"><button class="button button--ghost" value="cancel">Cancel</button><button id="confirmExportBtn" class="button button--primary" value="default">Export TSV</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmDialog" class="dialog dialog--confirm">
+    <form method="dialog" class="dialog__surface">
+      <div class="dialog__header">
+        <div>
+          <p class="eyebrow">Confirm action</p>
+          <h2 id="confirmTitle">Delete form?</h2>
+        </div>
+      </div>
+      <div class="dialog__body">
+        <p id="confirmMessage">This action cannot be undone.</p>
+      </div>
+      <div class="dialog__footer">
+        <button id="confirmCancelBtn" class="button button--ghost" type="button">Cancel</button>
+        <button id="confirmActionBtn" class="button button--danger" type="button">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="conflictDialog" class="dialog dialog--conflict">
+    <form method="dialog" class="dialog__surface conflict-surface">
+      <div class="dialog__header">
+        <div>
+          <p class="eyebrow">Sync conflict</p>
+          <h2>Choose what to keep</h2>
+        </div>
+      </div>
+      <div class="dialog__body conflict-body">
+        <p>This entry changed in another synchronized browser while this browser was offline. Nothing has been discarded.</p>
+        <div class="conflict-columns">
+          <section><h3>Drive version</h3><pre id="conflictServerText"></pre></section>
+          <section><h3>This browser</h3><pre id="conflictDeviceText"></pre></section>
+        </div>
+        <label class="field">
+          <span>Error code</span>
+          <select id="conflictErrorChoice"></select>
+        </label>
+        <label class="field">
+          <span>Reasoning Pattern</span>
+          <select id="conflictPatternChoice"></select>
+        </label>
+        <label class="switch-control conflict-union"><input id="conflictUnionSpeed" type="checkbox" checked><span>Combine speed flags from both versions</span></label>
+        <label class="field">
+          <span>Merged Reasoning Note</span>
+          <textarea id="conflictMergeInput" rows="5" maxlength="12000"></textarea>
+        </label>
+      </div>
+      <div class="dialog__footer conflict-actions">
+        <button id="keepServerBtn" class="button button--ghost" type="button">Keep Drive version</button>
+        <button id="keepDeviceBtn" class="button button--ghost" type="button">Keep this browser</button>
+        <button id="mergeConflictBtn" class="button button--primary" type="button">Use merged entry</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="restoreDatabaseDialog" class="dialog dialog--confirm">
+    <form id="restoreDatabaseForm" class="dialog__surface">
+      <div class="dialog__header"><div><p class="eyebrow">Database restoration</p><h2>Review restore preview</h2></div><button id="closeRestoreDatabaseBtn" class="icon-button" type="button" aria-label="Close">×</button></div>
+      <div class="dialog__body">
+        <div id="restorePreviewSummary" class="restore-preview"></div>
+        <p>A verified safety backup will be created immediately before restoration. Current forms, logs, rules, and settings will be replaced.</p>
+        <label class="field"><span>Type RESTORE to confirm</span><input id="restoreConfirmationInput" type="text" autocomplete="off" required></label>
+        <p id="restoreDatabaseError" class="field-error" hidden></p>
+      </div>
+      <div class="dialog__footer"><button id="cancelRestoreDatabaseBtn" class="button button--ghost" type="button">Cancel</button><button class="button button--danger" type="submit">Create safety backup & restore</button></div>
+    </form>
+  </dialog>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="js/config.js" defer></script>
+  <script src="js/reasoning.js" defer></script>
+  <script src="js/analytics.js" defer></script>
+  <script src="js/browser-api.js" defer></script>
+  <script src="js/sync.js" defer></script>
+  <script src="js/app.js" defer></script>
+  <script src="js/v3.js" defer></script>
+  <script src="js/drive-sync.js" defer></script>
+</body>
+</html>
