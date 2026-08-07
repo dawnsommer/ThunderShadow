@@ -1,7 +1,8 @@
-const CACHE_NAME = "thundershadow-github-shell-v1";
+const CACHE_NAME = "thundershadow-github-shell-v2";
 const ASSETS = [
   "./",
   "./index.html",
+  "./privacy.html",
   "./css/styles.css",
   "./js/theme-init.js",
   "./js/uuid.js",
@@ -38,9 +39,12 @@ self.addEventListener("fetch", (event) => {
   if (event.request.mode === "navigate") {
     event.respondWith(fetch(event.request).then((response) => {
       const clone = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", clone));
+      caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
       return response;
-    }).catch(() => caches.match("./index.html")));
+    }).catch(async () => {
+      const exact = await caches.match(event.request);
+      return exact || caches.match("./index.html");
+    }));
     return;
   }
   event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {

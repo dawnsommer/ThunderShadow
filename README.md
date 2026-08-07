@@ -74,7 +74,7 @@ GitHub Pages is static, so it cannot contain a private OAuth client secret. A pu
 6. Copy the Client ID.
 7. Either:
    - edit `js/config.js` and put it in `googleClientId` before publishing, **recommended for a finished deployment**, or
-   - leave `js/config.js` blank and paste the Client ID in ThunderShadow **Settings → Google Drive sync** on each browser.
+   - place the shared ThunderShadow public OAuth Client ID in `js/config.js`. Users only need to click Connect Google Drive and authorize their own account.
 
 Example `js/config.js`:
 
@@ -118,6 +118,17 @@ Recommended:
 - `js/config.js` — deploy-time public configuration
 - `service-worker.js`, `manifest.json`, `manifest.webmanifest` — PWA/offline support
 - `.nojekyll` — tells GitHub Pages to serve the static files directly
+
+
+## Public privacy policy
+
+This release includes `privacy.html`. For a public Google OAuth deployment:
+
+1. Publish the site and confirm `privacy.html` is reachable at your production origin.
+2. Keep the **Privacy Policy** link visible on the ThunderShadow homepage/settings.
+3. In Google Cloud OAuth branding/consent configuration, set the privacy-policy URL to that exact published URL.
+4. Keep the policy accurate if ThunderShadow's Google-data usage changes.
+5. For production brand verification, use a domain you can verify in Google Search Console; a custom domain mapped to GitHub Pages is the safest deployment model.
 
 ## Security/privacy notes
 

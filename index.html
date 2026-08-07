@@ -358,7 +358,7 @@
             <div class="drive-sync-card__heading">
               <div>
                 <h2>Google Drive sync <span class="badge">optional</span></h2>
-                <p id="driveStatusText" class="muted">Browser storage is active. Google Drive sync is optional.</p>
+                <p id="driveStatusText" class="muted">Browser storage is active. Connect your own Google Drive account for sync.</p>
                 <p id="driveDetailText" class="muted">Local IndexedDB is the default store.</p>
               </div>
               <div class="v3-heading__actions">
@@ -368,10 +368,10 @@
               </div>
             </div>
             <div class="drive-config-row">
-              <label class="field field--wide"><span>Google OAuth Web Client ID</span><input id="googleClientIdInput" type="text" inputmode="text" autocomplete="off" placeholder="xxxx.apps.googleusercontent.com"></label>
-              <button id="saveGoogleClientIdBtn" class="button button--ghost" type="button">Save client ID</button>
+              <label class="field field--wide"><span>Google OAuth Client</span><input id="googleClientIdInput" type="text" inputmode="text" autocomplete="off" placeholder="ThunderShadow public OAuth client"></label>
+              <button id="saveGoogleClientIdBtn" class="button button--ghost" type="button">Override client ID</button>
             </div>
-            <p class="muted drive-sync-note">Drive uses the private <code>appDataFolder</code> scope. After authorization, changes sync automatically while the Google access token remains valid; browser storage continues working if Drive is offline or needs reconnection.</p>
+            <p class="muted drive-sync-note">ThunderShadow uses one public OAuth client for the app. Your Google account remains separate: Drive sync stores data only in your private <code>appDataFolder</code>. Browser storage remains the default and continues working if Drive is offline or needs reconnection. <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
           </section>
           <section class="panel v3-panel settings-grid">
             <div><h2>Exports</h2><p class="muted">Download portable files generated from browser-local data.</p></div>
@@ -398,6 +398,10 @@
         </div>
       </section>
     </main>
+
+    <footer style="text-align:center;padding:10px 16px 18px;font-size:.78rem;opacity:.72">
+      <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>
+    </footer>
   </div>
 
   <dialog id="formDialog" class="dialog">
