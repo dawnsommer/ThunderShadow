@@ -99,9 +99,13 @@
     const dirty = Boolean(window.ThunderShadowCloud?.getDirtyState?.().dirty);
     let state = detail.state || "";
     if (source === "cloud" || !state) {
-      if (["syncing", "connecting", "initializing", "ready"].includes(cloudState) || dirty) state = "pending";
+      // An unsynced local edit is not the same thing as an active cloud request.
+      // Error/offline must win over the dirty flag; otherwise the top bar can say
+      // “Syncing cloud” forever after a failed request even though no sync is running.
+      if (["syncing", "connecting", "initializing", "ready"].includes(cloudState)) state = "pending";
       else if (["error", "offline", "unconfigured"].includes(cloudState)) state = "offline";
       else if (cloudState === "signedout") state = "local";
+      else if (dirty) state = "pending";
       else state = "synced";
     }
     const authorized = detail.authorized ?? cloud.authorized ?? Boolean(window.ThunderShadowCloud?.isAuthorized?.());
@@ -109,10 +113,15 @@
     if (state === "pending") {
       if (cloudState === "connecting" || cloudState === "initializing") return { state: "pending", cloudState, long: "Connecting cloud", short: "Connecting", lastSyncedAt, authorized };
       if (cloudState === "ready" && !dirty) return { state: "pending", cloudState, long: "Cloud ready", short: "Ready", lastSyncedAt, authorized };
-      return { state: "pending", cloudState, long: "Syncing cloud", short: "Syncing", lastSyncedAt, authorized };
+      if (cloudState === "syncing") return { state: "pending", cloudState, long: "Syncing cloud", short: "Syncing", lastSyncedAt, authorized };
+      return { state: "pending", cloudState, long: "Cloud sync pending", short: "Pending", lastSyncedAt, authorized };
     }
     if (state === "local" || cloudState === "signedout" || (!authorized && cloudState !== "unconfigured")) return { state: "local", cloudState: "signedout", long: "Saved locally", short: "Local", lastSyncedAt, authorized: false };
-    if (state === "offline") return { state: "offline", cloudState, long: cloudState === "unconfigured" ? "Cloud unavailable" : "Cloud offline", short: "Offline", lastSyncedAt, authorized };
+    if (state === "offline") {
+      const long = cloudState === "unconfigured" ? "Cloud unavailable" : cloudState === "error" ? "Cloud sync error" : "Cloud offline";
+      const short = cloudState === "error" ? "Error" : "Offline";
+      return { state: "offline", cloudState, long, short, lastSyncedAt, authorized };
+    }
     return { state: "synced", cloudState, long: "Cloud synced", short: "Synced", lastSyncedAt, authorized: true };
   }
 

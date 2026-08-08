@@ -67,6 +67,30 @@
   const del = (store, key) => withStore(store, "readwrite", (s) => s.delete(key));
   const clear = (store) => withStore(store, "readwrite", (s) => s.clear());
 
+  async function updateRecordAtomically(storeName, key, transform) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      const request = store.get(key);
+      let result = null;
+      request.onerror = () => { try { tx.abort(); } catch {} reject(request.error || new Error("Storage read failed.")); };
+      request.onsuccess = () => {
+        try {
+          result = transform(request.result == null ? null : deepClone(request.result));
+          if (result == null) store.delete(key);
+          else store.put(deepClone(result));
+        } catch (error) {
+          try { tx.abort(); } catch {}
+          reject(error);
+        }
+      };
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(tx.error || new Error("Storage transaction failed."));
+      tx.onabort = () => reject(tx.error || new Error("Storage transaction was aborted."));
+    }).finally(() => { try { db.close(); } catch {} });
+  }
+
   async function getMeta(key, fallback = null) {
     const record = await get(STORES.meta, key).catch(() => null);
     return record?.value ?? fallback;
@@ -399,41 +423,72 @@
 
   async function mergePackage(remotePayload) {
     validateBackupPayload(remotePayload);
-    const local = await exportPackage();
-    const combinedTombstones = { forms: { ...(local.tombstones?.forms || {}) }, rules: { ...(local.tombstones?.rules || {}) }, entries: { ...(local.tombstones?.entries || {}) } };
+
+    // Cloud sync must never clear/rebuild the live IndexedDB stores. A destructive
+    // replace creates a race where a form or note saved while Drive is syncing can
+    // disappear when an older merge snapshot is written back. Apply only the
+    // remote delta/tombstones to the current browser state instead.
+    const localTombstones = await tombstones();
+    const combinedTombstones = {
+      forms: { ...(localTombstones?.forms || {}) },
+      rules: { ...(localTombstones?.rules || {}) },
+      entries: { ...(localTombstones?.entries || {}) }
+    };
     for (const [id, ts] of Object.entries(remotePayload.tombstones?.forms || {})) if (!combinedTombstones.forms[id] || combinedTombstones.forms[id] < ts) combinedTombstones.forms[id] = ts;
     for (const [id, ts] of Object.entries(remotePayload.tombstones?.rules || {})) if (!combinedTombstones.rules[id] || combinedTombstones.rules[id] < ts) combinedTombstones.rules[id] = ts;
     for (const [id, ts] of Object.entries(remotePayload.tombstones?.entries || {})) if (!combinedTombstones.entries[id] || combinedTombstones.entries[id] < ts) combinedTombstones.entries[id] = ts;
 
-    const localForms = new Map((local.forms || []).filter((form) => form && typeof form === "object" && form.id).map((form) => [form.id, form]));
     const remoteForms = new Map((remotePayload.forms || [])
       .filter((form) => form && typeof form === "object" && form.id)
-      .map((form) => [form.id, normalizeForm(form, form)]));
-    const mergedForms = [];
-    for (const id of new Set([...localForms.keys(), ...remoteForms.keys(), ...Object.keys(combinedTombstones.forms)])) {
-      const merged = mergeForms(localForms.get(id), remoteForms.get(id), combinedTombstones.entries, id);
-      const deletedAt = combinedTombstones.forms[id] || "";
-      if (merged && objectTimestamp(merged) > deletedAt) mergedForms.push(merged);
+      .map((form) => [String(form.id), normalizeForm(form, form)]));
+    const affectedFormIds = new Set([...remoteForms.keys(), ...Object.keys(combinedTombstones.forms)]);
+    for (const entryKey of Object.keys(combinedTombstones.entries || {})) {
+      const split = String(entryKey).lastIndexOf(":");
+      if (split > 0) affectedFormIds.add(String(entryKey).slice(0, split));
     }
 
-    const localRules = new Map((local.rules || []).filter((rule) => rule && typeof rule === "object" && rule.id).map((rule) => [rule.id, rule]));
-    const remoteRules = new Map((remotePayload.rules || []).filter((rule) => rule && typeof rule === "object" && rule.id).map((rule) => [rule.id, rule]));
-    const mergedRules = [];
-    for (const id of new Set([...localRules.keys(), ...remoteRules.keys(), ...Object.keys(combinedTombstones.rules)])) {
-      const merged = mergeRuleObjects(localRules.get(id), remoteRules.get(id));
-      const deletedAt = combinedTombstones.rules[id] || "";
-      if (merged && objectTimestamp(merged) > deletedAt) mergedRules.push(merged);
+    for (const id of affectedFormIds) {
+      await updateRecordAtomically(STORES.forms, id, (stored) => {
+        const localForm = stored ? normalizeForm(stored, stored) : null;
+        const merged = mergeForms(localForm, remoteForms.get(id), combinedTombstones.entries, id);
+        const deletedAt = combinedTombstones.forms[id] || "";
+        return merged && objectTimestamp(merged) > deletedAt ? merged : null;
+      });
     }
 
-    const remoteSettingsNewer = String(remotePayload.settingsUpdatedAt || "") > String(local.settingsUpdatedAt || "");
-    const mergedPayload = {
-      app: "ThunderShadow", version: BACKUP_VERSION, storage: "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION,
-      forms: mergedForms, rules: mergedRules,
-      settings: remoteSettingsNewer ? (remotePayload.settings || {}) : local.settings,
-      settingsUpdatedAt: remoteSettingsNewer ? (remotePayload.settingsUpdatedAt || "") : (local.settingsUpdatedAt || ""),
-      tombstones: combinedTombstones
-    };
-    await replacePackage(mergedPayload);
+    const remoteRules = new Map((remotePayload.rules || [])
+      .filter((rule) => rule && typeof rule === "object" && rule.id)
+      .map((rule) => [String(rule.id), normalizeRule(rule, rule)]));
+    const affectedRuleIds = new Set([...remoteRules.keys(), ...Object.keys(combinedTombstones.rules)]);
+    for (const id of affectedRuleIds) {
+      await updateRecordAtomically(STORES.rules, id, (stored) => {
+        const merged = mergeRuleObjects(stored, remoteRules.get(id));
+        const deletedAt = combinedTombstones.rules[id] || "";
+        return merged && objectTimestamp(merged) > deletedAt ? normalizeRule(merged, merged) : null;
+      });
+    }
+
+    const remoteSettingsUpdatedAt = String(remotePayload.settingsUpdatedAt || "");
+    const remoteUiScale = Number(remotePayload.settings?.uiScale);
+    if (remoteSettingsUpdatedAt && ZOOM_LEVELS.has(remoteUiScale)) {
+      await updateRecordAtomically(STORES.settings, "ui_scale", (stored) => {
+        const localSettingsUpdatedAt = String(stored?.updatedAt || "");
+        return remoteSettingsUpdatedAt > localSettingsUpdatedAt
+          ? { key: "ui_scale", value: remoteUiScale, updatedAt: remoteSettingsUpdatedAt }
+          : stored;
+      });
+    }
+
+    await updateRecordAtomically(STORES.meta, "tombstones", (record) => {
+      const current = record?.value && typeof record.value === "object" ? record.value : { forms: {}, rules: {}, entries: {} };
+      const merged = { forms: { ...(current.forms || {}) }, rules: { ...(current.rules || {}) }, entries: { ...(current.entries || {}) } };
+      for (const bucket of ["forms", "rules", "entries"]) {
+        for (const [id, ts] of Object.entries(combinedTombstones[bucket] || {})) {
+          if (!merged[bucket][id] || merged[bucket][id] < ts) merged[bucket][id] = ts;
+        }
+      }
+      return { key: "tombstones", value: merged };
+    });
     return exportPackage();
   }
 
@@ -640,6 +695,14 @@
       m = match(pathname, /\/api\/rules\/([^/]+)$/);
       if (m && method === "PUT") {
         const id = m[0], existing = await get(STORES.rules, id); if (!existing) return errorResponse(new Error("Rule not found."), 404, "NOT_FOUND"); const body = await parseBody(options); const priorIdentity = `${existing.pattern}\n${normalizedRuleText(existing.ruleText)}`; const updated = normalizeRule({ ...existing, ...body, id, updatedAt: nowISO() }, existing); const nextIdentity = `${updated.pattern}\n${normalizedRuleText(updated.ruleText)}`; if (priorIdentity !== nextIdentity) updated.aliases = [...(updated.aliases || []), { pattern: existing.pattern, ruleText: existing.ruleText }]; const duplicates = await duplicateMatches(updated, null, id); if (duplicates.exact.length) return jsonResponse({ error: { code: "EXACT_DUPLICATE", message: "This exact rule is already in the library.", details: { rules: duplicates.exact } } }, 409); await put(STORES.rules, updated); notifyMutation("rule.updated", { ruleId: id }); return jsonResponse({ rule: await hydrateRule(updated), nearDuplicates: duplicates.near });
+      }
+      if (m && method === "DELETE") {
+        const id = m[0], existing = await get(STORES.rules, id);
+        if (!existing) return errorResponse(new Error("Rule not found."), 404, "NOT_FOUND");
+        await del(STORES.rules, id);
+        await markDeleted("rule", id);
+        notifyMutation("rule.deleted", { ruleId: id, immediate: true });
+        return new Response(null, { status: 204 });
       }
       m = match(pathname, /\/api\/rules\/([^/]+)\/merge$/);
       if (m && method === "POST") {

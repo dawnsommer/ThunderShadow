@@ -13,6 +13,9 @@
   const SYNC_DEBOUNCE_MS = 7500;
   const FOREGROUND_CHECK_THROTTLE_MS = 60_000;
   const TOKEN_SKEW_MS = 60_000;
+  const TOKEN_REQUEST_TIMEOUT_MS = 15_000;
+  const DRIVE_REQUEST_TIMEOUT_MS = 20_000;
+  const CLOUD_READ_CONCURRENCY = 4;
   const DRIVE_API = "https://www.googleapis.com/drive/v3";
   const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
   const MANIFEST_FORMAT_VERSION = 1;
@@ -219,6 +222,37 @@
     return String(payload.email || payload.account_email || payload.accountEmail || payload.account?.email || "");
   }
 
+  async function fetchWithTimeout(url, options = {}, timeoutMs = DRIVE_REQUEST_TIMEOUT_MS) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+      if (timedOut) throw new Error(`Cloud request timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function mapWithConcurrency(items, limit, worker) {
+    const output = new Array(items.length);
+    let cursor = 0;
+    const runners = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+      while (true) {
+        const index = cursor++;
+        if (index >= items.length) return;
+        output[index] = await worker(items[index], index);
+      }
+    });
+    await Promise.all(runners);
+    return output;
+  }
+
   async function getValidDriveAccessToken({ forceRefresh = false } = {}) {
     if (!forceRefresh && accessToken && accessTokenExpiresAt > Date.now() + TOKEN_SKEW_MS) return accessToken;
     if (tokenPromise) return tokenPromise;
@@ -228,11 +262,11 @@
 
     tokenPromise = (async () => {
       diagnostics.tokenRefreshes += 1;
-      const response = await fetch(workerUrl("/token"), {
+      const response = await fetchWithTimeout(workerUrl("/token"), {
         method: "POST",
         headers: { Authorization: `Bearer ${session}`, Accept: "application/json" },
         cache: "no-store"
-      });
+      }, TOKEN_REQUEST_TIMEOUT_MS);
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         if ([401, 403].includes(response.status)) {
@@ -263,7 +297,7 @@
     const token = await getValidDriveAccessToken();
     const headers = new Headers(options.headers || {});
     headers.set("Authorization", `Bearer ${token}`);
-    const response = await fetch(url, { ...options, headers, cache: "no-store" });
+    const response = await fetchWithTimeout(url, { ...options, headers, cache: "no-store" }, DRIVE_REQUEST_TIMEOUT_MS);
     if (response.status === 401 && retryAuth) {
       accessToken = "";
       accessTokenExpiresAt = 0;
@@ -459,17 +493,25 @@
     let settingsUpdatedAt = "";
 
     const shouldFetch = (file) => firstSync || priorIndex.files?.[file.name] !== currentIndex.files?.[file.name];
-    for (const file of files) {
+    const changedDataFiles = files.filter((file) => {
       const kind = file.appProperties?.kind || "";
-      if (kind === "form" && shouldFetch(file)) {
-        const value = await readJsonFile(file);
-        if (value?.data?.id) forms.push(value.data);
-        else if (value?.id) forms.push(value);
-      } else if (kind === "rule" && shouldFetch(file)) {
-        const value = await readJsonFile(file);
-        if (value?.data?.id) rules.push(value.data);
-        else if (value?.id) rules.push(value);
-      }
+      return (kind === "form" || kind === "rule") && shouldFetch(file);
+    });
+
+    // A fresh desktop/browser has no remote index and therefore needs every Drive
+    // object once. Read a small bounded number in parallel instead of serially;
+    // this keeps first sync responsive without recreating the high-concurrency
+    // behavior that can overwhelm mobile/Chromium tabs.
+    const fetched = await mapWithConcurrency(changedDataFiles, CLOUD_READ_CONCURRENCY, async (file) => ({
+      file,
+      value: await readJsonFile(file)
+    }));
+    for (const { file, value } of fetched) {
+      const kind = file.appProperties?.kind || "";
+      const data = value?.data?.id ? value.data : (value?.id ? value : null);
+      if (!data) continue;
+      if (kind === "form") forms.push(data);
+      else if (kind === "rule") rules.push(data);
     }
 
     const settingsFile = byName.get(settingsFileName());
@@ -782,11 +824,11 @@
     let remoteError = null;
     if (session && navigator.onLine) {
       try {
-        const response = await fetch(workerUrl("/disconnect"), {
+        const response = await fetchWithTimeout(workerUrl("/disconnect"), {
           method: "POST",
           headers: { Authorization: `Bearer ${session}`, Accept: "application/json" },
           cache: "no-store"
-        });
+        }, TOKEN_REQUEST_TIMEOUT_MS);
         if (!response.ok) remoteError = new Error(`Worker disconnect failed (${response.status}).`);
       } catch (error) {
         remoteError = error;

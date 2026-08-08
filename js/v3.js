@@ -43,9 +43,10 @@
   }
 
   function ruleCard(rule) {
-    const source = rule.sourceFormId && rule.sourceQuestionNumber
+    const sourceFormAvailable = rule.sourceFormId && app.getForms().some((form) => form.id === rule.sourceFormId);
+    const source = sourceFormAvailable && rule.sourceQuestionNumber
       ? `<button class="button button--subtle" data-rule-action="source" type="button">Open source Entry ${rule.sourceQuestionNumber}</button>`
-      : "";
+      : rule.sourceFormId ? `<span class="muted">Source form deleted</span>` : "";
     const suggestions = (rule.nearDuplicates || []).map((item) => `
       <div class="duplicate-suggestion">
         <span>${Math.round(item.similarity * 100)}% similar: ${escapeHTML(item.ruleText)}</span>
@@ -72,6 +73,7 @@
           <button class="button button--primary" data-rule-action="save" type="button">Save</button>
           ${source}
           <button class="button button--danger-ghost" data-rule-action="archive" type="button">Archive</button>
+          <button class="button button--danger" data-rule-action="delete" type="button">Delete permanently</button>
         </div>
         ${suggestions ? `<details class="duplicate-details"><summary>Suggested near-duplicate grouping (${rule.nearDuplicates.length})</summary>${suggestions}</details>` : ""}
         <details class="review-history"><summary>Review history (${rule.reviewHistory.length})</summary><ul>${history}</ul></details>
@@ -110,6 +112,17 @@
       })
     });
     app.showToast(result.nearDuplicates.length ? `Rule added; ${result.nearDuplicates.length} possible near-duplicate shown.` : "Rule added to the library.");
+    await loadLibrary();
+  }
+
+  async function deleteRule(card) {
+    const id = card.dataset.ruleId;
+    const rule = state.rules.find((item) => item.id === id);
+    if (!rule) return;
+    const confirmed = window.confirm(`Permanently delete this saved rule?\n\n${rule.ruleText}\n\nThis removes the rule from this device and Google Drive after sync. The original Reasoning Note inside an existing form is not changed.`);
+    if (!confirmed) return;
+    await app.apiRequest(`/api/rules/${encodeURIComponent(id)}`, { method: "DELETE" });
+    app.showToast("Saved rule permanently deleted.");
     await loadLibrary();
   }
 
@@ -355,6 +368,7 @@
     try {
       if (button.dataset.ruleAction === "save") await updateRule(card);
       if (button.dataset.ruleAction === "archive") await updateRule(card, "archived");
+      if (button.dataset.ruleAction === "delete") await deleteRule(card);
       if (button.dataset.ruleAction === "merge") await mergeRule(card, button.dataset.sourceRuleId);
       if (button.dataset.ruleAction === "source") {
         const rule = state.rules.find((item) => item.id === card.dataset.ruleId);

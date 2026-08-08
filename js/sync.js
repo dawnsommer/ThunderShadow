@@ -28,7 +28,15 @@
   async function updateStatus(forceState = null) {
     const cloud = window.ThunderShadowCloud?.getStatus?.();
     const dirty = Boolean(window.ThunderShadowCloud?.getDirtyState?.().dirty);
-    const state = forceState || (["syncing", "connecting", "initializing", "ready"].includes(cloud?.state) || dirty ? "pending" : cloud?.state === "signedout" ? "local" : ["error", "offline", "unconfigured"].includes(cloud?.state) ? "offline" : "synced");
+    const state = forceState || (["syncing", "connecting", "initializing", "ready"].includes(cloud?.state)
+      ? "pending"
+      : ["error", "offline", "unconfigured"].includes(cloud?.state)
+        ? "offline"
+        : cloud?.state === "signedout"
+          ? "local"
+          : dirty
+            ? "pending"
+            : "synced");
     const detail = { state, pending: state === "pending" ? 1 : 0, conflicts: 0, lastSyncedAt: cloud?.lastSyncedAt || lastSyncedAt, storage: "browser", cloudState: cloud?.state || "signedout", authorized: Boolean(cloud?.authorized) };
     lastStatus = detail;
     emit("thundershadow-sync-status", detail);
