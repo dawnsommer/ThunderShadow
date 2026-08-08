@@ -11,12 +11,12 @@
   <meta name="application-name" content="ThunderShadow">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=12"></script>
-  <script src="js/uuid.js?v=12"></script>
+  <script src="js/theme-init.js?v=13"></script>
+  <script src="js/uuid.js?v=13"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=12">
+  <link rel="stylesheet" href="css/styles.css?v=13">
 </head>
 <body>
   <div class="storm" aria-hidden="true">
@@ -178,7 +178,17 @@
 
       <section id="loggerView" class="view view--logger" aria-label="Entry logger" hidden>
         <div class="logger-layout">
-          <aside class="panel question-rail" aria-label="Entry navigator">
+          <aside id="questionRail" class="panel question-rail" aria-label="Entry navigator">
+            <div class="touch-entry-summary">
+              <button id="entryRailToggleBtn" class="touch-entry-toggle" type="button" aria-expanded="false" aria-controls="questionNumberGrid">
+                <span class="touch-entry-toggle__label">Entry</span>
+                <strong id="touchEntryNumber">1</strong>
+                <span id="touchEntrySaveState" class="touch-entry-toggle__state">Saved</span>
+                <span class="touch-entry-toggle__chevron" aria-hidden="true">⌄</span>
+              </button>
+              <button id="touchNewEntryBtn" class="touch-square-button" type="button" aria-label="New entry" title="New entry">＋</button>
+              <button id="touchEntryActionsBtn" class="touch-square-button" type="button" aria-label="Entry actions" title="Entry actions">•••</button>
+            </div>
             <div class="question-rail__header">
               <div>
                 <p id="loggerFormSubject" class="eyebrow">NBME / CMS</p>
@@ -247,8 +257,14 @@
                 <div id="errorCodeRows" class="option-stack option-stack--errors"></div>
               </section>
 
-              <section class="choice-section choice-section--patterns">
-                <div class="section-heading">
+              <section id="patternSection" class="choice-section choice-section--patterns touch-collapsible is-touch-collapsed">
+                <div class="touch-collapse-header-row">
+                  <button id="patternCollapseBtn" class="touch-collapse-header" type="button" aria-expanded="false">
+                    <span><strong>Reasoning Pattern</strong><small id="patternCollapseSummary">Optional</small></span><i aria-hidden="true">⌄</i>
+                  </button>
+                  <button id="patternGuideTouchBtn" class="pattern-info-button touch-only-info" type="button" aria-label="Open reasoning pattern guide" title="View pattern definitions and fixes">i</button>
+                </div>
+                <div class="section-heading desktop-section-heading">
                   <div>
                     <div class="pattern-heading-row">
                       <h3>Reasoning Pattern</h3>
@@ -261,18 +277,26 @@
               </section>
 
               <section class="rule-section">
-                <div class="rule-section__top">
-                  <div class="section-heading section-heading--inline">
+                <div id="noteArea" class="note-area touch-collapsible is-touch-collapsed">
+                  <button id="noteCollapseBtn" class="touch-collapse-header" type="button" aria-expanded="false">
+                    <span><strong>Reasoning Note</strong><small id="noteCollapseSummary">Optional</small></span><i aria-hidden="true">⌄</i>
+                  </button>
+                  <div class="rule-section__top">
+                    <div class="section-heading section-heading--inline desktop-section-heading">
                     <div>
                       <h3>Reasoning Note — optional</h3>
                       <p>What internal thought is not visible in the screenshot?</p>
                     </div>
+                    </div>
                   </div>
+                  <textarea id="manualRuleInput" rows="3" maxlength="12000" spellcheck="true" aria-label="Reasoning Note"></textarea>
                 </div>
-                <textarea id="manualRuleInput" rows="3" maxlength="12000" spellcheck="true" aria-label="Reasoning Note"></textarea>
 
-                <div class="speed-area">
-                  <div>
+                <div id="speedArea" class="speed-area touch-collapsible is-touch-collapsed">
+                  <button id="speedCollapseBtn" class="touch-collapse-header" type="button" aria-expanded="false">
+                    <span><strong>Speed flags</strong><small id="speedCollapseSummary">Optional</small></span><i aria-hidden="true">⌄</i>
+                  </button>
+                  <div class="speed-area__desktop-heading desktop-section-heading">
                     <h3>Speed flags</h3>
                     <p>What execution behavior contributed? Optional; multiple selections allowed.</p>
                   </div>
@@ -350,10 +374,18 @@
         <div class="v3-scroll v3-scroll--narrow">
           <div class="v3-heading"><div><p class="eyebrow">Settings</p><h1>Browser data, Google Drive sync and exports</h1><p>Data is stored locally in this browser by default. Google Drive app-data sync is optional; ThunderShadow makes no external AI calls.</p></div></div>
           <section class="panel v3-panel preference-card">
-            <div><h2>Display mode</h2><p class="muted">Touch mode uses larger targets and a tablet-style logger on this browser only.</p></div>
+            <div><h2>Display mode</h2><p class="muted">Touch mode uses device-optimized phone and iPad layouts with larger tap targets on this browser only.</p></div>
             <div class="segmented-control" role="group" aria-label="Display mode">
               <button id="desktopModeBtn" type="button" data-ui-mode="desktop">Desktop</button>
               <button id="touchModeBtn" type="button" data-ui-mode="touch">Touch</button>
+            </div>
+          </section>
+          <section class="panel v3-panel preference-card">
+            <div><h2>Theme</h2><p class="muted">Choose the appearance for this browser.</p></div>
+            <div class="segmented-control" role="group" aria-label="Color theme">
+              <button type="button" data-theme-choice="light">Light</button>
+              <button type="button" data-theme-choice="dark">Dark</button>
+              <button type="button" data-theme-choice="system">System</button>
             </div>
           </section>
           <section class="panel v3-panel drive-sync-card">
@@ -392,7 +424,7 @@
             </div>
             <p id="portableBackupStatus" class="muted" aria-live="polite"></p>
           </section>
-          <section class="panel v3-panel"><h2>Interface scale</h2><p class="muted">Use the − / Fit / + controls in the header. Scale remains stored locally in this browser.</p></section>
+          <section class="panel v3-panel"><h2>Interface scale</h2><p class="muted">Desktop UI uses the − / Fit / + header controls. Touch UI uses fixed device-optimized sizing; the desktop scale remains stored locally.</p></section>
         </div>
       </section>
     </main>
@@ -474,6 +506,18 @@
     </div>
   </dialog>
 
+  <dialog id="touchEntryActionsDialog" class="dialog dialog--confirm touch-actions-dialog" aria-labelledby="touchEntryActionsTitle">
+    <div class="dialog__surface">
+      <div class="dialog__header"><div><p class="eyebrow">Entry actions</p><h2 id="touchEntryActionsTitle">Current entry</h2></div><button id="touchEntryActionsCloseBtn" class="icon-button" type="button" aria-label="Close">×</button></div>
+      <div class="dialog__body touch-actions-list">
+        <button id="touchDeleteEntryBtn" class="button button--danger-ghost" type="button">Delete Entry</button>
+        <button id="touchPermanentDeleteEntryBtn" class="button button--danger" type="button" hidden>Delete permanently</button>
+        <button id="touchExportFormBtn" class="button button--ghost" type="button">Export form TSV</button>
+        <button id="touchFinishFormBtn" class="button button--subtle" type="button">Finish Form</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="exportDialog" class="dialog dialog--confirm">
     <form method="dialog" class="dialog__surface">
       <div class="dialog__header"><div><p class="eyebrow">TSV validation</p><h2>Screenshot-count check</h2></div></div>
@@ -551,13 +595,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=12" defer></script>
-  <script src="js/reasoning.js?v=12" defer></script>
-  <script src="js/analytics.js?v=12" defer></script>
-  <script src="js/browser-api.js?v=12" defer></script>
-  <script src="js/sync.js?v=12" defer></script>
-  <script src="js/app.js?v=12" defer></script>
-  <script src="js/v3.js?v=12" defer></script>
-  <script src="js/cloud-sync.js?v=12" defer></script>
+  <script src="js/config.js?v=13" defer></script>
+  <script src="js/reasoning.js?v=13" defer></script>
+  <script src="js/analytics.js?v=13" defer></script>
+  <script src="js/browser-api.js?v=13" defer></script>
+  <script src="js/sync.js?v=13" defer></script>
+  <script src="js/app.js?v=13" defer></script>
+  <script src="js/v3.js?v=13" defer></script>
+  <script src="js/cloud-sync.js?v=13" defer></script>
 </body>
 </html>
