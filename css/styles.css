@@ -3803,3 +3803,19 @@ html[data-theme="light"][data-ui-mode="touch"] .storm__rain--far {
   background-size: 54px 82px;
   animation: rain-far 1.05s linear infinite !important;
 }
+
+/* ========================================================================== */
+/* v18 — device-local rain performance control                               */
+/* ========================================================================== */
+/* OFF removes the animated rain layers from rendering entirely. This rule is
+   deliberately last so touch/light-mode visibility overrides cannot restart
+   the rain animation after the user disables it in Settings. */
+html[data-rain-effect="off"] .storm__rain {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  animation: none !important;
+  background-image: none !important;
+  will-change: auto !important;
+}
+

@@ -43,6 +43,7 @@
     toastRegion: $("toastRegion"), theme: $("themeModeSelect")
   };
   const TOUCH_SECTION_PREF_KEY = "thundershadow:touch-section-defaults";
+  const RAIN_EFFECT_KEY = "thundershadow:rain-effect";
   function loadTouchSectionPreferences() {
     try {
       const stored = JSON.parse(localStorage.getItem(TOUCH_SECTION_PREF_KEY) || "{}");
@@ -79,6 +80,18 @@
   async function downloadFromApi(path, filename) { const response = await rawApiRequest(path); if (!response.ok) throw new Error("Download failed."); const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || filename; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 
   function applyTheme(mode) { const systemDark = matchMedia("(prefers-color-scheme: dark)").matches; const resolvedTheme = mode === "system" ? (systemDark ? "dark" : "light") : mode; document.documentElement.dataset.themeMode = mode; document.documentElement.dataset.theme = resolvedTheme; localStorage.setItem("thundershadow:theme", mode); const themeColor = document.querySelector('meta[name="theme-color"]'); if (themeColor) themeColor.setAttribute("content", resolvedTheme === "light" ? "#90a9b9" : "#07111f"); if (el.theme) el.theme.value = mode; document.querySelectorAll("[data-theme-choice]").forEach((button) => button.classList.toggle("is-active", button.dataset.themeChoice === mode)); }
+
+  function applyRainEffect(value) {
+    const enabled = value !== false && value !== "off";
+    const mode = enabled ? "on" : "off";
+    document.documentElement.dataset.rainEffect = mode;
+    localStorage.setItem(RAIN_EFFECT_KEY, mode);
+    document.querySelectorAll("[data-rain-choice]").forEach((button) => {
+      const active = button.dataset.rainChoice === mode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
 
   function syncStatusModel(detail = {}, source = "sync") {
     const cloud = source === "cloud" ? detail : (window.ThunderShadowCloud?.getStatus?.() || {});
@@ -465,7 +478,7 @@
     $("zoomOutBtn").addEventListener("click", () => changeZoom(-1)); $("zoomInBtn").addEventListener("click", () => changeZoom(1)); $("zoomFitBtn").addEventListener("click", fitZoom); addEventListener("resize", scheduleViewportLayout, { passive: true }); addEventListener("orientationchange", scheduleViewportLayout, { passive: true }); window.visualViewport?.addEventListener("resize", syncVisualViewport, { passive: true }); window.visualViewport?.addEventListener("scroll", syncVisualViewport, { passive: true });
     $("uiModeToggleBtn").addEventListener("click", () => applyUiMode(state.uiMode === "touch" ? "desktop" : "touch")); document.querySelectorAll("[data-ui-mode]").forEach((button) => button.addEventListener("click", () => applyUiMode(button.dataset.uiMode)));
     $("backupBtn").addEventListener("click", () => backupAllForms().catch((e) => showToast(e.message))); $("restoreBackupBtn").addEventListener("click", () => $("restoreInput").click()); $("restoreInput").addEventListener("change", (e) => restoreBackup(e.target.files?.[0]));
-    el.theme.addEventListener("change", () => applyTheme(el.theme.value)); document.querySelectorAll("[data-theme-choice]").forEach((button) => button.addEventListener("click", () => applyTheme(button.dataset.themeChoice))); matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if ((localStorage.getItem("thundershadow:theme") || "system") === "system") applyTheme("system"); });
+    el.theme.addEventListener("change", () => applyTheme(el.theme.value)); document.querySelectorAll("[data-theme-choice]").forEach((button) => button.addEventListener("click", () => applyTheme(button.dataset.themeChoice))); document.querySelectorAll("[data-rain-choice]").forEach((button) => button.addEventListener("click", () => applyRainEffect(button.dataset.rainChoice))); matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if ((localStorage.getItem("thundershadow:theme") || "system") === "system") applyTheme("system"); });
     $("keepServerBtn").addEventListener("click", () => resolveConflict("server").catch((error) => showToast(error.message))); $("keepDeviceBtn").addEventListener("click", () => resolveConflict("device").catch((error) => showToast(error.message))); $("mergeConflictBtn").addEventListener("click", () => resolveConflict("merge").catch((error) => showToast(error.message)));
     addEventListener("thundershadow-sync-status", (event) => renderSyncStatus(event.detail || {}, "sync"));
     addEventListener("thundershadow-cloud-status", (event) => renderSyncStatus(event.detail || {}, "cloud"));
@@ -491,7 +504,7 @@
     });
   }
 
-  async function initialize() { activatePrimaryView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); renderSyncStatus({ state: "local", cloudState: "signedout" }, "sync"); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); queueMicrotask(refreshSyncStatus); if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {}); }
+  async function initialize() { activatePrimaryView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyRainEffect(localStorage.getItem(RAIN_EFFECT_KEY) || "on"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); renderSyncStatus({ state: "local", cloudState: "signedout" }, "sync"); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); queueMicrotask(refreshSyncStatus); if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {}); }
 
   window.ThunderShadowApp = { apiRequest, rawApiRequest, downloadFromApi, showLibrary, showToast, activateAuxiliaryView, refreshAccess: async () => {}, getForms: () => state.forms.map(({ id, name, date }) => ({ id, name, date })), openFormQuestion: async (formId, entryNumber) => { const form = state.forms.find((f) => f.id === formId); if (!form) throw new Error("Source form is no longer available."); await openForm(form); changeEntry(Number(entryNumber)); }, hideCoreViews: () => { hideAllPrimaryViews(); el.libraryTopActions.hidden = true; el.loggerTopActions.hidden = true; el.homeBtn.hidden = state.uiMode === "touch"; document.documentElement.dataset.activeView = "none"; syncTouchLayout(); } };
   initialize();

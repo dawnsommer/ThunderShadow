@@ -11,12 +11,12 @@
   <meta name="application-name" content="ThunderShadow">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=18"></script>
-  <script src="js/uuid.js?v=18"></script>
+  <script src="js/theme-init.js?v=19"></script>
+  <script src="js/uuid.js?v=19"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=18">
+  <link rel="stylesheet" href="css/styles.css?v=19">
 </head>
 <body>
   <div class="storm" aria-hidden="true">
@@ -388,6 +388,13 @@
               <button type="button" data-theme-choice="system">System</button>
             </div>
           </section>
+          <section class="panel v3-panel preference-card">
+            <div><h2>Rain effect</h2><p class="muted">Turn animated rain off on this device to reduce background rendering and battery/heat load. This preference stays on this browser only.</p></div>
+            <div class="segmented-control" role="group" aria-label="Rain effect">
+              <button type="button" data-rain-choice="on">On</button>
+              <button type="button" data-rain-choice="off">Off</button>
+            </div>
+          </section>
           <section class="panel v3-panel touch-section-preferences">
             <div class="touch-section-preferences__intro"><h2>Phone logger sections</h2><p class="muted">Set whether optional logger sections are expanded or collapsed on phone. These persistent layout controls live here in Settings so the logging surface stays task-focused.</p></div>
             <div class="touch-section-preference-row">
@@ -619,13 +626,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=18" defer></script>
-  <script src="js/reasoning.js?v=18" defer></script>
-  <script src="js/analytics.js?v=18" defer></script>
-  <script src="js/browser-api.js?v=18" defer></script>
-  <script src="js/sync.js?v=18" defer></script>
-  <script src="js/app.js?v=18" defer></script>
-  <script src="js/v3.js?v=18" defer></script>
-  <script src="js/cloud-sync.js?v=18" defer></script>
+  <script src="js/config.js?v=19" defer></script>
+  <script src="js/reasoning.js?v=19" defer></script>
+  <script src="js/analytics.js?v=19" defer></script>
+  <script src="js/browser-api.js?v=19" defer></script>
+  <script src="js/sync.js?v=19" defer></script>
+  <script src="js/app.js?v=19" defer></script>
+  <script src="js/v3.js?v=19" defer></script>
+  <script src="js/cloud-sync.js?v=19" defer></script>
 </body>
 </html>
