@@ -274,7 +274,7 @@
     document.getElementById("backupDirectoryText").textContent = `${payload.directory} · keep ${payload.retention} · scheduled every ${payload.intervalHours || "disabled"}${payload.intervalHours ? " hours" : ""}`;
     document.getElementById("backupList").innerHTML = payload.backups.length ? payload.backups.map((backup) => `
       <article class="backup-row" data-backup-filename="${escapeHTML(backup.filename)}">
-        <div><strong>${escapeHTML(backup.filename)}</strong><small>${escapeHTML(backup.modifiedAt.slice(0, 19).replace("T", " "))} · ${(backup.sizeBytes / 1024).toFixed(1)} KB · ${backup.valid ? `verified · ${backup.counts.forms} forms` : escapeHTML(backup.error)}</small></div>
+        <div><strong>${escapeHTML(backup.filename)}</strong><small>${escapeHTML((backup.modifiedAt || "Stored snapshot").slice(0, 19).replace("T", " "))} · ${Number.isFinite(backup.sizeBytes) ? `${(backup.sizeBytes / 1024).toFixed(1)} KB · ` : ""}${backup.valid ? (backup.counts ? `verified · ${backup.counts.forms} forms` : "stored · verify on preview") : escapeHTML(backup.error)}</small></div>
         <div class="v3-heading__actions"><button class="button button--subtle" data-backup-action="download" type="button"${backup.valid ? "" : " disabled"}>Download</button><button class="button button--ghost" data-backup-action="preview" type="button"${backup.valid ? "" : " disabled"}>Preview restore</button></div>
       </article>
     `).join("") : '<div class="frequency-empty">No local backups yet.</div>';

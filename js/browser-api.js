@@ -18,6 +18,8 @@
   const SPEED_LABELS = new Map(SPEED_FLAGS.map((item) => [item.value, `${item.code} — ${item.label}`]));
   const restorePreviews = new Map();
   let scheduledBackupChecked = false;
+  let scheduledBackupQueued = false;
+  const BACKUP_METADATA_KEY = "thundershadow:backup-metadata:v1";
 
   const nowISO = () => new Date().toISOString();
   const uuid = () => (window.ThunderShadowUUID ? window.ThunderShadowUUID() : crypto.randomUUID());
@@ -63,6 +65,7 @@
 
   const get = (store, key) => withStore(store, "readonly", (s) => s.get(key));
   const getAll = (store) => withStore(store, "readonly", (s) => s.getAll());
+  const getAllKeys = (store) => withStore(store, "readonly", (s) => s.getAllKeys());
   const put = (store, value) => withStore(store, "readwrite", (s) => s.put(deepClone(value)));
   const del = (store, key) => withStore(store, "readwrite", (s) => s.delete(key));
   const clear = (store) => withStore(store, "readwrite", (s) => s.clear());
@@ -492,14 +495,56 @@
     return exportPackage();
   }
 
+  function readBackupMetadataCache() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(BACKUP_METADATA_KEY) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch { return {}; }
+  }
+  function writeBackupMetadataCache(cache) {
+    try { localStorage.setItem(BACKUP_METADATA_KEY, JSON.stringify(cache || {})); } catch {}
+  }
+  function rememberBackupMetadata(record) {
+    if (!record?.filename) return;
+    const cache = readBackupMetadataCache();
+    const { payload, ...metadata } = record;
+    cache[record.filename] = metadata;
+    const names = Object.keys(cache).sort((a, b) => String(cache[b]?.modifiedAt || b).localeCompare(String(cache[a]?.modifiedAt || a)));
+    for (const name of names.slice(BACKUP_RETENTION * 2)) delete cache[name];
+    writeBackupMetadataCache(cache);
+  }
+  function forgetBackupMetadata(filename) {
+    const cache = readBackupMetadataCache();
+    if (Object.prototype.hasOwnProperty.call(cache, filename)) { delete cache[filename]; writeBackupMetadataCache(cache); }
+  }
+  function metadataFromBackupFilename(filename) {
+    const match = String(filename || "").match(/^ThunderShadow_Browser_([^_]+)_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/);
+    const modifiedAt = match ? match[2].replace(/T(\d{2})-(\d{2})-(\d{2})/, "T$1:$2:$3") : "";
+    return {
+      filename: String(filename || ""),
+      type: match?.[1] || "snapshot",
+      modifiedAt: modifiedAt || "",
+      createdAt: modifiedAt || "",
+      valid: true,
+      sizeBytes: null,
+      counts: null,
+      metadataOnly: true
+    };
+  }
+
   function backupName(type = "manual") { return `ThunderShadow_Browser_${type}_${nowISO().replace(/[:.]/g, "-")}.json`; }
   async function createSnapshot(type = "manual") {
     const payload = await exportPackage();
     const filename = backupName(type);
     const record = { filename, type, modifiedAt: nowISO(), createdAt: nowISO(), valid: true, sizeBytes: byteLength(payload), counts: previewPackage(payload).counts, payload };
     await put(STORES.backups, record);
-    const backups = (await getAll(STORES.backups)).sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt)));
-    for (const old of backups.slice(BACKUP_RETENTION)) await del(STORES.backups, old.filename);
+    rememberBackupMetadata(record);
+    // Retention cleanup uses keys + cached metadata rather than cloning every full
+    // snapshot payload into memory. Large libraries can otherwise freeze Safari/Chrome.
+    const keys = (await getAllKeys(STORES.backups)).map(String);
+    const cache = readBackupMetadataCache();
+    keys.sort((a, b) => String(cache[b]?.modifiedAt || b).localeCompare(String(cache[a]?.modifiedAt || a)));
+    for (const filename of keys.slice(BACKUP_RETENTION)) { await del(STORES.backups, filename); forgetBackupMetadata(filename); }
     await setMeta("last_backup_at", record.modifiedAt);
     return record;
   }
@@ -507,7 +552,23 @@
     if (scheduledBackupChecked) return;
     scheduledBackupChecked = true;
     const last = await getMeta("last_backup_at", null);
-    if (!last || Date.now() - Date.parse(last) >= BACKUP_INTERVAL_HOURS * 3600_000) await createSnapshot("scheduled").catch(() => {});
+    const parsedLast = last ? Date.parse(last) : NaN;
+    if (!last || !Number.isFinite(parsedLast) || Date.now() - parsedLast >= BACKUP_INTERVAL_HOURS * 3600_000) {
+      await createSnapshot("scheduled").catch((error) => console.warn("ThunderShadow scheduled backup skipped:", error));
+    }
+  }
+
+  function queueScheduledBackupCheck() {
+    if (scheduledBackupChecked || scheduledBackupQueued) return;
+    scheduledBackupQueued = true;
+    const run = () => {
+      scheduledBackupQueued = false;
+      maybeScheduledBackup().catch((error) => console.warn("ThunderShadow scheduled backup check failed:", error));
+    };
+    // Backups are maintenance, never a prerequisite for opening/saving forms.
+    // Run only after the foreground request has been allowed to complete.
+    if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 5000 });
+    else setTimeout(run, 1500);
   }
 
   function base64FromBytes(bytes) { let binary = ""; const chunk = 0x8000; for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk)); return btoa(binary); }
@@ -598,7 +659,7 @@
   }
 
   async function request(path, options = {}) {
-    await maybeScheduledBackup();
+    queueScheduledBackupCheck();
     const url = routePath(path);
     const pathname = url.pathname.replace(/\/+/g, "/");
     const method = String(options.method || "GET").toUpperCase();
@@ -666,7 +727,12 @@
         const body = await parseBody(options); const payload = typeof body === "string" ? JSON.parse(body) : body; await createSnapshot("safety-before-json-restore"); const result = await replacePackage(payload); notifyMutation("database.restored", { immediate: true }); return jsonResponse(result);
       }
       if (pathname.endsWith("/api/backups") && method === "GET") {
-        const backups = (await getAll(STORES.backups)).sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt))).map(({ payload, ...metadata }) => metadata);
+        // Listing backups must be O(metadata), not O(total snapshot payload size).
+        // getAll() cloned every historical full-library payload and could lock the UI.
+        const keys = (await getAllKeys(STORES.backups)).map(String);
+        const cache = readBackupMetadataCache();
+        const backups = keys.map((filename) => cache[filename] || metadataFromBackupFilename(filename))
+          .sort((a, b) => String(b.modifiedAt || b.filename).localeCompare(String(a.modifiedAt || a.filename)));
         return jsonResponse({ directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS, backups });
       }
       if (pathname.endsWith("/api/backups") && method === "POST") { const record = await createSnapshot("manual"); const { payload, ...metadata } = record; return jsonResponse(metadata, 201); }
