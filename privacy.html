@@ -18,32 +18,32 @@
     <h1>Privacy Policy</h1>
     <p class="muted">Last updated: August 8, 2026</p>
 
-    <p>ThunderShadow is a browser-based study and error-logging application. Study data is stored locally in your browser by default. Optional Firebase cloud synchronization is available only when you choose to sign in.</p>
+    <p>ThunderShadow is a browser-based study and error-logging application. Study data is stored locally in your browser by default. Optional Google Drive app-data synchronization is available only when you choose to connect Google.</p>
 
     <h2>1. Local browser data</h2>
     <p>ThunderShadow stores forms, logged entries, reasoning notes, rules, settings, backup metadata, and deletion records primarily in IndexedDB. The application remains usable without signing in or enabling cloud synchronization.</p>
 
-    <h2>2. Google sign-in</h2>
-    <p>If you choose <strong>Sign in with Google</strong>, ThunderShadow uses Firebase Authentication to identify your account and maintain a persistent signed-in session on that browser or installed web app. The application uses your Google account identity, including your Firebase user ID and basic account information such as email address, only to associate your private synchronized ThunderShadow data with you.</p>
-    <p>ThunderShadow does not request access to your Google Drive files, Gmail, Contacts, Calendar, Google Photos, or other unrelated Google services.</p>
+    <h2>2. Google connection</h2>
+    <p>If you choose <strong>Connect Google</strong>, ThunderShadow redirects through the shared Cloudflare Worker to Google OAuth and requests only the <code>drive.appdata</code> scope. This scope permits access to application data stored in Google Drive's hidden app-data area; it does not permit ThunderShadow to browse ordinary visible Drive documents, Gmail, Contacts, Calendar, or Google Photos.</p>
+    <p>The browser stores a Worker session token so it can request short-lived Google Drive access tokens without repeated login prompts. Google refresh tokens and Google client secrets are not stored in ThunderShadow frontend storage.</p>
 
-    <h2>3. Cloud Firestore synchronization</h2>
-    <p>When cloud sync is enabled, ThunderShadow stores synchronized application records in Google Cloud Firestore under a path restricted to your authenticated Firebase user ID. The synchronized content may include the same forms, entries, rules, settings, review history, and deletion metadata that are stored locally in ThunderShadow.</p>
+    <h2>3. Google Drive app-data synchronization</h2>
+    <p>When cloud sync is enabled, ThunderShadow stores synchronized forms, logged entries, rules, settings, review history, and deletion metadata in your Google Drive <code>appDataFolder</code>. ThunderShadow uses an app-specific file namespace and does not intentionally place these files in your visible Drive folders.</p>
 
-    <h2>4. Access control</h2>
-    <p>Cloud Firestore Security Rules are configured so an authenticated user can read and write only records stored under that user's own Firebase user ID. Other ThunderShadow users are not granted access to those records.</p>
+    <h2>4. OAuth service</h2>
+    <p>The Cloudflare Worker is used only to complete Google OAuth, maintain the server-side refresh-token session, issue temporary Google access tokens to the connected ThunderShadow browser, and disconnect that session. Authentication tokens are not included in Drive synchronization files.</p>
 
     <h2>5. Authentication persistence</h2>
-    <p>Firebase Authentication may store authentication state locally in the browser or installed web app so you can remain signed in after closing and reopening ThunderShadow. Signing out removes that authentication session from the current browser or installed app. Clearing browser/site data can also remove the local session.</p>
+    <p>The Worker session token may remain in browser storage so ThunderShadow can silently refresh temporary Drive access after closing and reopening the app. Disconnecting Google clears that local session state; clearing browser/site data can also remove it.</p>
 
     <h2>6. Sharing, advertising, and AI</h2>
-    <p>ThunderShadow does not sell or rent synchronized user data and does not use it for advertising or data-broker purposes. The application does not send your ThunderShadow study database to an external AI service. GitHub Pages, Firebase, Google Authentication, and Cloud Firestore may process technical information according to their own service policies as required to host, authenticate, and synchronize the application.</p>
+    <p>ThunderShadow does not sell or rent synchronized user data and does not use it for advertising or data-broker purposes. The application does not send your ThunderShadow study database to an external AI service. GitHub Pages, Cloudflare, Google OAuth, and Google Drive may process technical information according to their own service policies as required to host, authenticate, and synchronize the application.</p>
 
     <h2>7. User control and deletion</h2>
-    <p>You can use ThunderShadow without cloud sync, sign out at any time, delete local data within the application, or clear the site's browser storage. Cloud records associated with your account remain available for synchronization unless they are deleted through ThunderShadow or removed from the Firebase project by the service operator.</p>
+    <p>You can use ThunderShadow without cloud sync, sign out at any time, delete local data within the application, or clear the site's browser storage. Disconnecting Google does not delete Drive app-data files. Synchronized Drive records remain until ThunderShadow deletion synchronization or another user-controlled removal process deletes them.</p>
 
     <h2>8. Security</h2>
-    <p>ThunderShadow uses HTTPS when deployed through GitHub Pages. Firebase Authentication and Cloud Firestore communications are transmitted using encrypted HTTPS connections. You remain responsible for securing access to your device, browser profile, Google account, and exported backup files.</p>
+    <p>ThunderShadow uses HTTPS when deployed through GitHub Pages. Cloudflare Worker, Google OAuth, and Google Drive communications are transmitted using encrypted HTTPS connections. You remain responsible for securing access to your device, browser profile, Google account, and exported backup files.</p>
 
     <h2>9. Changes</h2>
     <p>This policy will be updated if ThunderShadow materially changes the data it collects, stores, or synchronizes.</p>

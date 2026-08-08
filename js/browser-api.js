@@ -296,8 +296,9 @@
   async function exportPackage({ includeBrowserSettings = true } = {}) {
     const forms = await allForms();
     const rules = await allHydratedRules();
-    const settings = includeBrowserSettings ? { uiScale: Number(await getSetting("ui_scale", 100)) || 100 } : {};
-    return { app: "ThunderShadow", version: BACKUP_VERSION, storage: "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION, forms, rules, settings, tombstones: await tombstones() };
+    const uiScaleRecord = includeBrowserSettings ? await get(STORES.settings, "ui_scale").catch(() => null) : null;
+    const settings = includeBrowserSettings ? { uiScale: Number(uiScaleRecord?.value ?? 100) || 100 } : {};
+    return { app: "ThunderShadow", version: BACKUP_VERSION, storage: "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION, forms, rules, settings, settingsUpdatedAt: uiScaleRecord?.updatedAt || "", tombstones: await tombstones() };
   }
 
   function previewPackage(payload) {
@@ -328,7 +329,9 @@
     await clear(STORES.forms); await clear(STORES.rules);
     for (const form of forms) await put(STORES.forms, form);
     for (const rule of rules) await put(STORES.rules, rule);
-    if (payload.settings?.uiScale && ZOOM_LEVELS.has(Number(payload.settings.uiScale))) await setSetting("ui_scale", Number(payload.settings.uiScale));
+    if (payload.settings?.uiScale && ZOOM_LEVELS.has(Number(payload.settings.uiScale))) {
+      await put(STORES.settings, { key: "ui_scale", value: Number(payload.settings.uiScale), updatedAt: payload.settingsUpdatedAt || nowISO() });
+    }
     await setMeta("tombstones", { forms: { ...(payload.tombstones?.forms || {}) }, rules: { ...(payload.tombstones?.rules || {}) }, entries: { ...(payload.tombstones?.entries || {}) } });
     if (!preserveBackups) await clear(STORES.backups);
     return { restored: forms.length, rulesRestored: rules.length };
@@ -422,7 +425,14 @@
       if (merged && objectTimestamp(merged) > deletedAt) mergedRules.push(merged);
     }
 
-    const mergedPayload = { app: "ThunderShadow", version: BACKUP_VERSION, storage: "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION, forms: mergedForms, rules: mergedRules, settings: local.settings, tombstones: combinedTombstones };
+    const remoteSettingsNewer = String(remotePayload.settingsUpdatedAt || "") > String(local.settingsUpdatedAt || "");
+    const mergedPayload = {
+      app: "ThunderShadow", version: BACKUP_VERSION, storage: "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION,
+      forms: mergedForms, rules: mergedRules,
+      settings: remoteSettingsNewer ? (remotePayload.settings || {}) : local.settings,
+      settingsUpdatedAt: remoteSettingsNewer ? (remotePayload.settingsUpdatedAt || "") : (local.settingsUpdatedAt || ""),
+      tombstones: combinedTombstones
+    };
     await replacePackage(mergedPayload);
     return exportPackage();
   }
@@ -487,10 +497,14 @@
   }
   function routePath(path) { return new URL(path, location.href); }
   function match(pathname, regex) { const m = pathname.match(regex); return m ? m.slice(1).map(decodeURIComponent) : null; }
-  const CLOUD_DIRTY_KEY = "thundershadow:firebase-dirty-state";
+  const CLOUD_DIRTY_KEY = "thundershadow:cloud-dirty-state";
+  const LEGACY_CLOUD_DIRTY_KEY = "thundershadow:firebase-dirty-state";
 
   function readCloudDirtyState() {
     try {
+      if (!localStorage.getItem(CLOUD_DIRTY_KEY) && localStorage.getItem(LEGACY_CLOUD_DIRTY_KEY)) {
+        localStorage.setItem(CLOUD_DIRTY_KEY, localStorage.getItem(LEGACY_CLOUD_DIRTY_KEY));
+      }
       const parsed = JSON.parse(localStorage.getItem(CLOUD_DIRTY_KEY) || "null");
       return parsed && typeof parsed === "object" ? parsed : { dirty: false, forms: [], entries: [], rules: [], settings: false, tombstones: false, full: false, updatedAt: null };
     } catch {

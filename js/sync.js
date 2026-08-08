@@ -25,9 +25,9 @@
   async function getCache(key) { try { return JSON.parse(localStorage.getItem(`${CACHE_PREFIX}${key}`) || "null")?.value ?? null; } catch { return null; } }
 
   async function updateStatus(forceState = null) {
-    const cloud = window.ThunderShadowFirebase?.getStatus?.();
-    const dirty = Boolean(window.ThunderShadowFirebase?.getDirtyState?.().dirty);
-    const state = forceState || (cloud?.state === "syncing" || dirty ? "pending" : ["error", "offline", "signedout", "unconfigured"].includes(cloud?.state) ? "offline" : "synced");
+    const cloud = window.ThunderShadowCloud?.getStatus?.();
+    const dirty = Boolean(window.ThunderShadowCloud?.getDirtyState?.().dirty);
+    const state = forceState || (["syncing", "connecting"].includes(cloud?.state) || dirty ? "pending" : ["error", "offline", "signedout", "unconfigured"].includes(cloud?.state) ? "offline" : "synced");
     const detail = { state, pending: state === "pending" ? 1 : 0, conflicts: 0, lastSyncedAt: cloud?.lastSyncedAt || lastSyncedAt, storage: "browser", cloudState: cloud?.state || "signedout" };
     emit("thundershadow-sync-status", detail);
     return detail;
@@ -46,7 +46,7 @@
 
   async function replay() {
     if (flusher) await flusher().catch(() => {});
-    if (window.ThunderShadowFirebase?.isAuthorized?.()) await window.ThunderShadowFirebase.syncNow({ background: false, reason: "retry-sync" }).catch(() => {});
+    if (window.ThunderShadowCloud?.isAuthorized?.()) await window.ThunderShadowCloud.syncNow({ background: false, reason: "retry-sync" }).catch(() => {});
     return updateStatus();
   }
   async function resolveConflict() { return null; }
@@ -54,7 +54,7 @@
   async function hasPendingForForm() { return false; }
   function initialize() {
     updateStatus();
-    addEventListener("thundershadow-firebase-status", () => updateStatus());
+    addEventListener("thundershadow-cloud-status", () => updateStatus());
     addEventListener("thundershadow-local-data-changed", () => updateStatus());
     addEventListener("online", () => updateStatus());
     addEventListener("offline", () => updateStatus());

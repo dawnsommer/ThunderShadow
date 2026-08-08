@@ -2,7 +2,7 @@
   "id": "./",
   "name": "ThunderShadow",
   "short_name": "ThunderShadow",
-  "description": "Browser-local NBME/CMS rapid rule logger with optional Firebase cloud sync.",
+  "description": "Browser-local NBME/CMS rapid rule logger with optional Google Drive app-data sync.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

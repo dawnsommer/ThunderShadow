@@ -9,14 +9,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ThunderShadow">
   <meta name="application-name" content="ThunderShadow">
-  <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Firebase cloud sync across devices.">
+  <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=11"></script>
-  <script src="js/uuid.js?v=11"></script>
+  <script src="js/theme-init.js?v=12"></script>
+  <script src="js/uuid.js?v=12"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=11">
+  <link rel="stylesheet" href="css/styles.css?v=12">
 </head>
 <body>
   <div class="storm" aria-hidden="true">
@@ -100,7 +100,7 @@
               <div>
                 <p class="eyebrow">Your logged forms</p>
                 <h1>ThunderShadow</h1>
-                <p class="muted">ThunderShadow is a browser-based NBME/CMS error logger and review app for recording mistakes, reasoning patterns, rules, and study analytics. Data stays in your browser by default; optional Firebase sync keeps ThunderShadow data synchronized privately across your signed-in devices.</p>
+                <p class="muted">ThunderShadow is a browser-based NBME/CMS error logger and review app for recording mistakes, reasoning patterns, rules, and study analytics. Data stays in your browser by default; optional Google Drive app-data sync keeps ThunderShadow data synchronized privately across your connected devices.</p>
               </div>
               <div class="panel__heading-actions">
                 <label class="search-box">
@@ -348,7 +348,7 @@
 
       <section id="settingsView" class="view v3-view" aria-label="Settings and exports" hidden>
         <div class="v3-scroll v3-scroll--narrow">
-          <div class="v3-heading"><div><p class="eyebrow">Settings</p><h1>Browser data, Firebase sync and exports</h1><p>Data is stored locally in this browser by default. Firebase cloud sync is optional; ThunderShadow makes no external AI calls.</p></div></div>
+          <div class="v3-heading"><div><p class="eyebrow">Settings</p><h1>Browser data, Google Drive sync and exports</h1><p>Data is stored locally in this browser by default. Google Drive app-data sync is optional; ThunderShadow makes no external AI calls.</p></div></div>
           <section class="panel v3-panel preference-card">
             <div><h2>Display mode</h2><p class="muted">Touch mode uses larger targets and a tablet-style logger on this browser only.</p></div>
             <div class="segmented-control" role="group" aria-label="Display mode">
@@ -359,17 +359,17 @@
           <section class="panel v3-panel drive-sync-card">
             <div class="drive-sync-card__heading">
               <div>
-                <h2>Firebase cloud sync <span class="badge">optional</span></h2>
-                <p id="firebaseStatusText" class="muted">Browser storage is active. Sign in with Google once to enable persistent Firebase sync.</p>
-                <p id="firebaseDetailText" class="muted">Local IndexedDB is the default store.</p>
+                <h2>Google Drive sync <span class="badge">optional</span></h2>
+                <p id="cloudStatusText" class="muted">Browser storage is active. Connect Google once to enable private Drive app-data sync.</p>
+                <p id="cloudDetailText" class="muted">Local IndexedDB is the default store.</p>
               </div>
               <div class="v3-heading__actions">
-                <button id="firebaseConnectBtn" class="button button--primary" type="button">Sign in with Google</button>
-                <button id="firebaseSyncNowBtn" class="button button--ghost" type="button" disabled>Sync now</button>
-                <button id="firebaseDisconnectBtn" class="button button--subtle" type="button" disabled>Disconnect</button>
+                <button id="cloudConnectBtn" class="button button--primary" type="button">Connect Google</button>
+                <button id="cloudSyncNowBtn" class="button button--ghost" type="button" disabled>Sync now</button>
+                <button id="cloudDisconnectBtn" class="button button--subtle" type="button" disabled>Disconnect</button>
               </div>
             </div>
-            <p class="muted drive-sync-note">ThunderShadow uses Firebase Authentication for a persistent Google sign-in and Cloud Firestore for private per-user synchronization. IndexedDB remains the primary local database and continues working offline. On iPhone/iPad Home-Screen installations, the first sign-in can use the existing Google redirect flow; after Firebase creates the session, reopening the app should remain signed in until you explicitly sign out or clear site data. <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
+            <p class="muted drive-sync-note">ThunderShadow stores synchronized study data only in Google Drive’s hidden appDataFolder. The shared Cloudflare Worker handles Google OAuth and token refresh; the browser stores only a Worker session token and temporary Google access token. IndexedDB remains the primary local database and continues working offline. Reopening the app silently refreshes Drive access without another Google popup until you disconnect or the Worker session expires. <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
           </section>
           <section class="panel v3-panel settings-grid">
             <div><h2>Exports</h2><p class="muted">Download portable files generated from browser-local data.</p></div>
@@ -551,13 +551,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=11" defer></script>
-  <script src="js/reasoning.js?v=11" defer></script>
-  <script src="js/analytics.js?v=11" defer></script>
-  <script src="js/browser-api.js?v=11" defer></script>
-  <script src="js/sync.js?v=11" defer></script>
-  <script src="js/app.js?v=11" defer></script>
-  <script src="js/v3.js?v=11" defer></script>
-  <script src="js/firebase-sync.js?v=11" defer></script>
+  <script src="js/config.js?v=12" defer></script>
+  <script src="js/reasoning.js?v=12" defer></script>
+  <script src="js/analytics.js?v=12" defer></script>
+  <script src="js/browser-api.js?v=12" defer></script>
+  <script src="js/sync.js?v=12" defer></script>
+  <script src="js/app.js?v=12" defer></script>
+  <script src="js/v3.js?v=12" defer></script>
+  <script src="js/cloud-sync.js?v=12" defer></script>
 </body>
 </html>
