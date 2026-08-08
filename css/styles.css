@@ -2913,3 +2913,275 @@ html[data-ui-mode="touch"] .review-card h2 { font-size: 18px; }
   html[data-ui-mode="touch"] .review-responses { display: grid; grid-template-columns: 1fr 1fr; }
   html[data-ui-mode="touch"] .review-responses .button { width: 100%; }
 }
+
+/* ========================================================================== */
+/* Touch performance + mobile analysis hardening (v13)                        */
+/* ========================================================================== */
+
+/* Mobile Safari was repainting the full animated storm continuously. Keep the
+   ThunderShadow visual identity on touch, but use a static composited backdrop. */
+html[data-ui-mode="touch"] .storm__rain,
+html[data-ui-mode="touch"] .storm__flash {
+  display: none !important;
+}
+html[data-ui-mode="touch"] .storm__clouds {
+  inset: 0;
+  opacity: .34;
+  filter: none !important;
+  animation: none !important;
+  transform: none !important;
+  will-change: auto;
+}
+html[data-ui-mode="touch"] .storm::after { opacity: .72; }
+
+/* Avoid expensive blur/compositing on touch surfaces, especially while a
+   scroll container is moving. */
+html[data-ui-mode="touch"] .dialog__surface,
+html[data-ui-mode="touch"] .toast,
+html[data-ui-mode="touch"] .pattern-guide-dialog::backdrop {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-ui-mode="touch"] .v3-panel,
+html[data-ui-mode="touch"] .form-card,
+html[data-ui-mode="touch"] .analytics-pattern-card,
+html[data-ui-mode="touch"] .finding-card,
+html[data-ui-mode="touch"] .stat-card {
+  box-shadow: none !important;
+}
+html[data-ui-mode="touch"] .button,
+html[data-ui-mode="touch"] .option-row,
+html[data-ui-mode="touch"] .speed-button,
+html[data-ui-mode="touch"] .question-number,
+html[data-ui-mode="touch"] .form-card {
+  transition: none !important;
+}
+
+/* One vertical scrolling surface per view. This prevents nested horizontal
+   panning and lets iOS keep scrolling on its fast compositor path. */
+html[data-ui-mode="touch"],
+html[data-ui-mode="touch"] body,
+html[data-ui-mode="touch"] .app-shell,
+html[data-ui-mode="touch"] .workspace,
+html[data-ui-mode="touch"] .view,
+html[data-ui-mode="touch"] .v3-view,
+html[data-ui-mode="touch"] .v3-scroll,
+html[data-ui-mode="touch"] .logger-panel,
+html[data-ui-mode="touch"] .logger-content {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+html[data-ui-mode="touch"] .v3-scroll,
+html[data-ui-mode="touch"] .logger-content,
+html[data-ui-mode="touch"] .question-grid,
+html[data-ui-mode="touch"] .pattern-guide-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: none;
+}
+html[data-ui-mode="touch"] .v3-scroll,
+html[data-ui-mode="touch"] .logger-content {
+  touch-action: pan-y;
+}
+html[data-ui-mode="touch"] .panel,
+html[data-ui-mode="touch"] .v3-panel,
+html[data-ui-mode="touch"] .v3-grid,
+html[data-ui-mode="touch"] .v3-grid > *,
+html[data-ui-mode="touch"] .analysis-summary,
+html[data-ui-mode="touch"] .analytics-pattern-grid,
+html[data-ui-mode="touch"] .analytics-pattern-card,
+html[data-ui-mode="touch"] .finding-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Persistent phone logger expansion preferences. */
+.touch-section-preferences { display: grid; gap: 12px; }
+.touch-section-preferences__intro { display: grid; gap: 3px; }
+.touch-section-preference-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.touch-section-preference-row > div:first-child { min-width: 0; display: grid; gap: 2px; }
+.touch-section-preference-row > div:first-child strong { font-size: 13px; }
+.touch-section-preference-row > div:first-child span { font-size: 11px; }
+.touch-section-preference-row .segmented-control { min-width: 220px; }
+.touch-section-preference-row .segmented-control button[aria-pressed="true"] {
+  color: #031118;
+  background: var(--accent);
+}
+html[data-theme="light"] .touch-section-preference-row .segmented-control button[aria-pressed="true"] { color: #fff; }
+
+/* Analysis owns the full phone width. Wide data is rendered as stacked cards
+   on phones instead of widening the entire app and exposing a grey off-canvas area. */
+html[data-ui-mode="touch"] #analysisView,
+html[data-ui-mode="touch"] #analysisView .v3-scroll,
+html[data-ui-mode="touch"] #analysisView .v3-grid,
+html[data-ui-mode="touch"] #analysisView .v3-panel,
+html[data-ui-mode="touch"] #analysisView .v3-table-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+html[data-ui-mode="touch"] #analysisView .v3-table-wrap {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+html[data-ui-mode="touch"] #analysisView .analytics-pattern-card,
+html[data-ui-mode="touch"] #analysisView .finding-card,
+html[data-ui-mode="touch"] #analysisView td,
+html[data-ui-mode="touch"] #analysisView th {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+@media (max-width: 640px), (max-height: 500px) and (orientation: landscape) and (max-width: 950px) {
+  /* Expanded sections stay in normal document flow and push later controls
+     downward. Nothing is absolutely positioned or allowed to overlap them. */
+  html[data-ui-mode="touch"] .logger-content {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    contain: layout paint;
+  }
+  html[data-ui-mode="touch"] .choice-section--errors {
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: 315px;
+  }
+  html[data-ui-mode="touch"] .choice-section--patterns,
+  html[data-ui-mode="touch"] .rule-section,
+  html[data-ui-mode="touch"] .note-area,
+  html[data-ui-mode="touch"] .speed-area,
+  html[data-ui-mode="touch"] .touch-collapsible {
+    position: static !important;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: auto;
+    min-height: 0;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  html[data-ui-mode="touch"] .rule-section {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  html[data-ui-mode="touch"] .choice-section--patterns:not(.is-touch-collapsed) #patternRows,
+  html[data-ui-mode="touch"] .note-area:not(.is-touch-collapsed) #manualRuleInput,
+  html[data-ui-mode="touch"] .speed-area:not(.is-touch-collapsed) #speedFlagButtons {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Settings controls remain comfortably tappable without forcing horizontal
+     overflow on narrow iPhones. */
+  html[data-ui-mode="touch"] .touch-section-preference-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  html[data-ui-mode="touch"] .touch-section-preference-row .segmented-control {
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* True phone analysis layout: one column and no horizontally scrolling root. */
+  html[data-ui-mode="touch"] #analysisView .v3-grid--two { grid-template-columns: 1fr !important; }
+  html[data-ui-mode="touch"] #analysisView .v3-heading,
+  html[data-ui-mode="touch"] #analysisView .analytics-filters { width: 100%; min-width: 0; }
+  html[data-ui-mode="touch"] #analysisView .analytics-filters .field,
+  html[data-ui-mode="touch"] #analysisView .analytics-filters .field--wide,
+  html[data-ui-mode="touch"] #analysisView .analytics-filters input,
+  html[data-ui-mode="touch"] #analysisView .analytics-filters select { width: 100%; min-width: 0; max-width: 100%; }
+  html[data-ui-mode="touch"] #analysisView .v3-table-wrap { overflow: visible; }
+  html[data-ui-mode="touch"] #analysisView .v3-table,
+  html[data-ui-mode="touch"] #analysisView .v3-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  html[data-ui-mode="touch"] #analysisView .v3-table thead { display: none; }
+  html[data-ui-mode="touch"] #analysisView .v3-table tr {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    margin-bottom: 8px;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface-control);
+  }
+  html[data-ui-mode="touch"] #analysisView .v3-table td {
+    width: 100%;
+    min-width: 0 !important;
+    display: grid;
+    grid-template-columns: minmax(92px, .42fr) minmax(0, .58fr);
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+    text-align: right;
+    font-size: 12px;
+  }
+  html[data-ui-mode="touch"] #analysisView .v3-table td:last-child { border-bottom: 0; }
+  html[data-ui-mode="touch"] #analysisView .v3-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    text-align: left;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .035em;
+    text-transform: uppercase;
+  }
+  html[data-ui-mode="touch"] #analysisView .analytics-pattern-card dl { grid-template-columns: 1fr; }
+  html[data-ui-mode="touch"] #analysisView .finding-card { align-items: flex-start; flex-direction: column; }
+}
+
+/* Restore the dedicated compact two-column logger in short phone landscape;
+   the normal-flow anti-overlap rules above are for portrait phones. */
+@media (max-height: 500px) and (orientation: landscape) and (max-width: 950px) {
+  html[data-ui-mode="touch"] .logger-content {
+    display: grid;
+    grid-template-columns: minmax(360px, 1.3fr) minmax(235px, .7fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    align-items: stretch;
+    gap: 5px;
+    padding: 5px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  html[data-ui-mode="touch"] .choice-section--errors {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    width: auto;
+    min-height: 214px;
+  }
+  html[data-ui-mode="touch"] .choice-section--patterns {
+    grid-column: 2;
+    grid-row: 1;
+    width: auto;
+  }
+  html[data-ui-mode="touch"] .rule-section {
+    grid-column: 2;
+    grid-row: 2;
+    width: auto;
+    display: flex;
+    flex-direction: column;
+    align-content: start;
+    gap: 5px;
+    overflow: visible;
+  }
+  html[data-ui-mode="touch"] .note-area,
+  html[data-ui-mode="touch"] .speed-area { width: 100%; }
+}
+html[data-ui-mode="touch"] .storm { filter: none !important; }

@@ -42,7 +42,16 @@
     exportDialog: $("exportDialog"), exportBody: $("exportValidationBody"), exportConfirm: $("confirmExportBtn"),
     toastRegion: $("toastRegion"), theme: $("themeModeSelect")
   };
-  const state = { forms: [], currentForm: null, currentEntryNumber: null, selected: new Set(), selectionMode: false, anchor: null, filter: "active", search: "", saveTimer: null, formTimer: null, pendingConfirm: null, editingForm: null, conflict: null, conflicts: [], zoom: 100, uiMode: localStorage.getItem("thundershadow:ui-mode") === "touch" ? "touch" : "desktop", entryRailExpanded: false, touchSections: { pattern: false, note: false, speed: false } };
+  const TOUCH_SECTION_PREF_KEY = "thundershadow:touch-section-defaults";
+  function loadTouchSectionPreferences() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(TOUCH_SECTION_PREF_KEY) || "{}");
+      return { pattern: stored.pattern === true, note: stored.note === true, speed: stored.speed === true };
+    } catch {
+      return { pattern: false, note: false, speed: false };
+    }
+  }
+  const state = { forms: [], currentForm: null, currentEntryNumber: null, selected: new Set(), selectionMode: false, anchor: null, filter: "active", search: "", saveTimer: null, formTimer: null, pendingConfirm: null, editingForm: null, conflict: null, conflicts: [], zoom: 100, uiMode: localStorage.getItem("thundershadow:ui-mode") === "touch" ? "touch" : "desktop", entryRailExpanded: false, touchSections: loadTouchSectionPreferences() };
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
   const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
   const isEditable = (target) => target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable;
@@ -82,6 +91,25 @@
     if (el.appShell) setZoom(state.zoom, false);
   }
   function isPhoneTouch() { return state.uiMode === "touch" && matchMedia("(max-width: 640px), (max-height: 500px) and (orientation: landscape) and (max-width: 950px)").matches; }
+  function syncTouchPreferenceControls() {
+    document.querySelectorAll("[data-touch-section-pref]").forEach((button) => {
+      const key = button.dataset.touchSectionPref;
+      const expanded = button.dataset.expanded === "true";
+      const active = Boolean(state.touchSections[key]) === expanded;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+  function persistTouchSectionPreferences() {
+    localStorage.setItem(TOUCH_SECTION_PREF_KEY, JSON.stringify(state.touchSections));
+    syncTouchPreferenceControls();
+  }
+  function setTouchSectionPreference(key, expanded) {
+    if (!["pattern", "note", "speed"].includes(key)) return;
+    state.touchSections[key] = Boolean(expanded);
+    persistTouchSectionPreferences();
+    syncTouchLayout();
+  }
   function syncTouchLayout() {
     const root = document.documentElement;
     root.dataset.touchLayout = isPhoneTouch() ? "phone" : matchMedia("(orientation: portrait)").matches ? "tablet-portrait" : "tablet-landscape";
@@ -97,11 +125,35 @@
       section.classList.toggle("is-touch-collapsed", !expanded);
       button.setAttribute("aria-expanded", String(expanded));
     }
+    syncTouchPreferenceControls();
   }
   function setEntryRailExpanded(expanded) { state.entryRailExpanded = Boolean(expanded); if (!state.entryRailExpanded && state.selectionMode) { state.selectionMode = false; state.selected.clear(); state.anchor = null; if (state.currentForm) renderNavigator(); } syncTouchLayout(); }
-  function toggleTouchSection(key) { state.touchSections[key] = !state.touchSections[key]; syncTouchLayout(); }
+  function toggleTouchSection(key) { setTouchSectionPreference(key, !state.touchSections[key]); }
   function setActiveView(view) { document.documentElement.dataset.activeView = view; }
-  function syncVisualViewport() { const height = window.visualViewport?.height || window.innerHeight; if (height) document.documentElement.style.setProperty("--touch-viewport-height", `${Math.round(height)}px`); }
+  let viewportTimer = 0;
+  let lastViewportHeight = 0;
+  function syncVisualViewport(immediate = false) {
+    clearTimeout(viewportTimer);
+    const apply = () => {
+      viewportTimer = 0;
+      const height = Math.round(window.visualViewport?.height || window.innerHeight || 0);
+      if (!height || Math.abs(height - lastViewportHeight) < 2) return;
+      lastViewportHeight = height;
+      document.documentElement.style.setProperty("--touch-viewport-height", `${height}px`);
+    };
+    if (immediate) apply();
+    else viewportTimer = setTimeout(apply, 90);
+  }
+  let layoutTimer = 0;
+  function scheduleViewportLayout() {
+    clearTimeout(layoutTimer);
+    layoutTimer = setTimeout(() => {
+      layoutTimer = 0;
+      if (state.uiMode !== "touch") setZoom(state.zoom, false);
+      syncTouchLayout();
+      syncVisualViewport(true);
+    }, 90);
+  }
   function setSaveState(text) { el.saveState.textContent = text; const touch = $("touchEntrySaveState"); if (touch) touch.textContent = text; }
   function syncTouchSummaries(entry = currentEntry()) {
     if (!entry) return;
@@ -278,6 +330,7 @@
     $("patternCollapseBtn").addEventListener("click", () => toggleTouchSection("pattern"));
     $("noteCollapseBtn").addEventListener("click", () => toggleTouchSection("note"));
     $("speedCollapseBtn").addEventListener("click", () => toggleTouchSection("speed"));
+    document.querySelectorAll("[data-touch-section-pref]").forEach((button) => button.addEventListener("click", () => setTouchSectionPreference(button.dataset.touchSectionPref, button.dataset.expanded === "true")));
     $("touchEntryActionsBtn").addEventListener("click", () => { syncTouchSummaries(); $("touchEntryActionsTitle").textContent = `Entry ${state.currentEntryNumber || ""}`; $("touchEntryActionsDialog").showModal(); });
     $("touchEntryActionsCloseBtn").addEventListener("click", () => $("touchEntryActionsDialog").close());
     $("touchEntryActionsDialog").addEventListener("click", (event) => { if (event.target === event.currentTarget) $("touchEntryActionsDialog").close(); });
@@ -299,7 +352,7 @@
     $("topPrevBtn").addEventListener("click", () => navigate(-1)); $("bottomPrevBtn").addEventListener("click", () => navigate(-1)); $("topNextBtn").addEventListener("click", () => navigate(1));
     el.homeBtn.addEventListener("click", async () => { await saveEntry(true); await saveForm(); showLibrary(); });
     el.confirmCancel.addEventListener("click", () => { state.pendingConfirm = null; el.confirmDialog.close(); }); el.confirmAction.addEventListener("click", async () => { const action = state.pendingConfirm; state.pendingConfirm = null; el.confirmDialog.close(); if (action) await action(); });
-    $("zoomOutBtn").addEventListener("click", () => changeZoom(-1)); $("zoomInBtn").addEventListener("click", () => changeZoom(1)); $("zoomFitBtn").addEventListener("click", fitZoom); addEventListener("resize", () => { setZoom(state.zoom, false); syncTouchLayout(); syncVisualViewport(); }); addEventListener("orientationchange", () => { syncTouchLayout(); syncVisualViewport(); }); window.visualViewport?.addEventListener("resize", syncVisualViewport); window.visualViewport?.addEventListener("scroll", syncVisualViewport);
+    $("zoomOutBtn").addEventListener("click", () => changeZoom(-1)); $("zoomInBtn").addEventListener("click", () => changeZoom(1)); $("zoomFitBtn").addEventListener("click", fitZoom); addEventListener("resize", scheduleViewportLayout, { passive: true }); addEventListener("orientationchange", scheduleViewportLayout, { passive: true }); window.visualViewport?.addEventListener("resize", syncVisualViewport, { passive: true });
     $("uiModeToggleBtn").addEventListener("click", () => applyUiMode(state.uiMode === "touch" ? "desktop" : "touch")); document.querySelectorAll("[data-ui-mode]").forEach((button) => button.addEventListener("click", () => applyUiMode(button.dataset.uiMode)));
     $("backupBtn").addEventListener("click", () => backupAllForms().catch((e) => showToast(e.message))); $("restoreBackupBtn").addEventListener("click", () => $("restoreInput").click()); $("restoreInput").addEventListener("change", (e) => restoreBackup(e.target.files?.[0]));
     el.theme.addEventListener("change", () => applyTheme(el.theme.value)); document.querySelectorAll("[data-theme-choice]").forEach((button) => button.addEventListener("click", () => applyTheme(button.dataset.themeChoice))); matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if ((localStorage.getItem("thundershadow:theme") || "system") === "system") applyTheme("system"); });
@@ -325,7 +378,7 @@
     });
   }
 
-  async function initialize() { setActiveView("library"); syncVisualViewport(); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {}); }
+  async function initialize() { setActiveView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {}); }
 
   window.ThunderShadowApp = { apiRequest, rawApiRequest, downloadFromApi, showLibrary, showToast, refreshAccess: async () => {}, getForms: () => state.forms.map(({ id, name, date }) => ({ id, name, date })), openFormQuestion: async (formId, entryNumber) => { const form = state.forms.find((f) => f.id === formId); if (!form) throw new Error("Source form is no longer available."); await openForm(form); changeEntry(Number(entryNumber)); }, hideCoreViews: () => { el.libraryView.hidden = true; el.loggerView.hidden = true; el.libraryTopActions.hidden = true; el.loggerTopActions.hidden = true; el.homeBtn.hidden = false; setActiveView("other"); syncTouchLayout(); } };
   initialize();
