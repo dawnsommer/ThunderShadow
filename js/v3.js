@@ -23,6 +23,7 @@
 
   async function show(area) {
     if (area === "logger") {
+      hide();
       app.showLibrary();
       return;
     }
