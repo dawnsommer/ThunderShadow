@@ -3,6 +3,15 @@
 
   const DB_NAME = "ThunderShadowBrowserDB";
   const DB_VERSION = 1;
+  const ACTIVE_DB_KEY = "thundershadow:active-browser-db:v1";
+  const STORAGE_RECOVERY_KEY = "thundershadow:storage-recovery:v1";
+  const DB_OPEN_TIMEOUT_MS = 3500;
+  const DB_TX_TIMEOUT_MS = 6500;
+  let cachedDb = null;
+  let cachedDbName = null;
+  let activeDbName = (() => {
+    try { return localStorage.getItem(ACTIVE_DB_KEY) || DB_NAME; } catch { return DB_NAME; }
+  })();
   const STORES = { forms: "forms", rules: "rules", settings: "settings", backups: "backups", meta: "meta" };
   const BACKUP_VERSION = 6;
   const SCHEMA_VERSION = 1;
@@ -27,9 +36,49 @@
   const jsonBytes = (value) => new TextEncoder().encode(JSON.stringify(value, null, 2));
   const byteLength = (value) => jsonBytes(value).byteLength;
 
-  function openDb() {
+  function markRecoveryDatabase(reason) {
+    const previous = activeDbName;
+    const recoveryName = `${DB_NAME}_recovery_${Date.now()}`;
+    activeDbName = recoveryName;
+    try {
+      localStorage.setItem(ACTIVE_DB_KEY, recoveryName);
+      localStorage.setItem(STORAGE_RECOVERY_KEY, JSON.stringify({
+        active: true,
+        previousDbName: previous,
+        recoveryDbName: recoveryName,
+        reason: String(reason?.message || reason || "Browser storage became unresponsive."),
+        activatedAt: nowISO()
+      }));
+      // A recovery database begins empty. Do not carry a stale local dirty-state or
+      // cached Drive file index into it; the next Google connection must rebuild
+      // state from Drive rather than treating the empty recovery DB as authoritative.
+      localStorage.removeItem("thundershadow:cloud-dirty-state");
+      localStorage.removeItem("thundershadow:drive-remote-index");
+    } catch {}
+    try { cachedDb?.close(); } catch {}
+    cachedDb = null;
+    cachedDbName = null;
+    window.dispatchEvent(new CustomEvent("thundershadow-storage-recovered", { detail: { previousDbName: previous, recoveryDbName: recoveryName } }));
+    return recoveryName;
+  }
+
+  function openDbNamed(name) {
+    if (cachedDb && cachedDbName === name) return Promise.resolve(cachedDb);
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      let settled = false;
+      const request = indexedDB.open(name, DB_VERSION);
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`Browser storage open timed out (${name}).`));
+      }, DB_OPEN_TIMEOUT_MS);
+      const finish = (fn, value) => {
+        if (settled) {
+          if (fn === resolve && value) { try { value.close(); } catch {} }
+          return;
+        }
+        settled = true; clearTimeout(timer); fn(value);
+      };
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains(STORES.forms)) db.createObjectStore(STORES.forms, { keyPath: "id" });
@@ -38,29 +87,58 @@
         if (!db.objectStoreNames.contains(STORES.backups)) db.createObjectStore(STORES.backups, { keyPath: "filename" });
         if (!db.objectStoreNames.contains(STORES.meta)) db.createObjectStore(STORES.meta, { keyPath: "key" });
       };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error("Could not open browser storage."));
+      request.onblocked = () => finish(reject, new Error(`Browser storage is blocked by another page or stale connection (${name}).`));
+      request.onsuccess = () => {
+        const db = request.result;
+        db.onversionchange = () => { try { db.close(); } catch {} if (cachedDb === db) { cachedDb = null; cachedDbName = null; } };
+        cachedDb = db; cachedDbName = name;
+        finish(resolve, db);
+      };
+      request.onerror = () => finish(reject, request.error || new Error("Could not open browser storage."));
     });
   }
 
-  async function withStore(storeName, mode, operation) {
+  async function openDb({ allowRecovery = true } = {}) {
+    try {
+      return await openDbNamed(activeDbName);
+    } catch (error) {
+      if (!allowRecovery) throw error;
+      const recoveryName = markRecoveryDatabase(error);
+      return openDbNamed(recoveryName);
+    }
+  }
+
+  async function withStore(storeName, mode, operation, allowRetry = true) {
     const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, mode);
-      const store = tx.objectStore(storeName);
-      let request;
-      try { request = operation(store); }
-      catch (error) { db.close(); reject(error); return; }
-      if (request && typeof request.onsuccess !== "undefined") {
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error || tx.error || new Error("Storage operation failed."));
-      } else {
-        tx.oncomplete = () => resolve(request);
-      }
-      tx.onerror = () => reject(tx.error || new Error("Storage transaction failed."));
-      tx.onabort = () => reject(tx.error || new Error("Storage transaction was aborted."));
-      tx.oncomplete = () => { db.close(); if (!request || typeof request.onsuccess === "undefined") resolve(request); };
-    }).finally(() => { try { db.close(); } catch {} });
+    try {
+      return await new Promise((resolve, reject) => {
+        let settled = false;
+        const tx = db.transaction(storeName, mode);
+        const store = tx.objectStore(storeName);
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          try { tx.abort(); } catch {}
+          reject(new Error(`Browser storage transaction timed out (${storeName}).`));
+        }, DB_TX_TIMEOUT_MS);
+        const finish = (fn, value) => { if (settled) return; settled = true; clearTimeout(timer); fn(value); };
+        let request;
+        try { request = operation(store); }
+        catch (error) { finish(reject, error); return; }
+        if (request && typeof request.onsuccess !== "undefined") {
+          request.onsuccess = () => finish(resolve, request.result);
+          request.onerror = () => finish(reject, request.error || tx.error || new Error("Storage operation failed."));
+        } else {
+          tx.oncomplete = () => finish(resolve, request);
+        }
+        tx.onerror = () => finish(reject, tx.error || new Error("Storage transaction failed."));
+        tx.onabort = () => finish(reject, tx.error || new Error("Storage transaction was aborted."));
+      });
+    } catch (error) {
+      if (!allowRetry || activeDbName !== DB_NAME) throw error;
+      markRecoveryDatabase(error);
+      return withStore(storeName, mode, operation, false);
+    }
   }
 
   const get = (store, key) => withStore(store, "readonly", (s) => s.get(key));
@@ -70,28 +148,42 @@
   const del = (store, key) => withStore(store, "readwrite", (s) => s.delete(key));
   const clear = (store) => withStore(store, "readwrite", (s) => s.clear());
 
-  async function updateRecordAtomically(storeName, key, transform) {
+  async function updateRecordAtomically(storeName, key, transform, allowRetry = true) {
     const db = await openDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, "readwrite");
-      const store = tx.objectStore(storeName);
-      const request = store.get(key);
-      let result = null;
-      request.onerror = () => { try { tx.abort(); } catch {} reject(request.error || new Error("Storage read failed.")); };
-      request.onsuccess = () => {
-        try {
-          result = transform(request.result == null ? null : deepClone(request.result));
-          if (result == null) store.delete(key);
-          else store.put(deepClone(result));
-        } catch (error) {
+    try {
+      return await new Promise((resolve, reject) => {
+        let settled = false;
+        const tx = db.transaction(storeName, "readwrite");
+        const store = tx.objectStore(storeName);
+        const request = store.get(key);
+        let result = null;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
           try { tx.abort(); } catch {}
-          reject(error);
-        }
-      };
-      tx.oncomplete = () => resolve(result);
-      tx.onerror = () => reject(tx.error || new Error("Storage transaction failed."));
-      tx.onabort = () => reject(tx.error || new Error("Storage transaction was aborted."));
-    }).finally(() => { try { db.close(); } catch {} });
+          reject(new Error(`Browser storage transaction timed out (${storeName}).`));
+        }, DB_TX_TIMEOUT_MS);
+        const finish = (fn, value) => { if (settled) return; settled = true; clearTimeout(timer); fn(value); };
+        request.onerror = () => { try { tx.abort(); } catch {} finish(reject, request.error || new Error("Storage read failed.")); };
+        request.onsuccess = () => {
+          try {
+            result = transform(request.result == null ? null : deepClone(request.result));
+            if (result == null) store.delete(key);
+            else store.put(deepClone(result));
+          } catch (error) {
+            try { tx.abort(); } catch {}
+            finish(reject, error);
+          }
+        };
+        tx.oncomplete = () => finish(resolve, result);
+        tx.onerror = () => finish(reject, tx.error || new Error("Storage transaction failed."));
+        tx.onabort = () => finish(reject, tx.error || new Error("Storage transaction was aborted."));
+      });
+    } catch (error) {
+      if (!allowRetry) throw error;
+      markRecoveryDatabase(error);
+      return updateRecordAtomically(storeName, key, transform, false);
+    }
   }
 
   async function getMeta(key, fallback = null) {
@@ -784,7 +876,11 @@
       if (pathname.endsWith("/api/export/analytics.json") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; return textResponse(JSON.stringify(calculateAnalytics(await allForms(), filters), null, 2), "application/json; charset=utf-8", "ThunderShadow_Analytics.json"); }
       if (pathname.endsWith("/api/export/chatgpt-analysis.md") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; const analytics = calculateAnalytics(await allForms(), filters); return textResponse(analysisMarkdown(analytics, await allHydratedRules()), "text/markdown; charset=utf-8", "ThunderShadow_ChatGPT_Analysis.md"); }
 
-      if (pathname.endsWith("/api/settings") && method === "GET") return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, backup: { directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS }, schemaVersion: SCHEMA_VERSION });
+      if (pathname.endsWith("/api/settings") && method === "GET") {
+        let storageRecovery = null;
+        try { storageRecovery = JSON.parse(localStorage.getItem(STORAGE_RECOVERY_KEY) || "null"); } catch {}
+        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, backup: { directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS }, schemaVersion: SCHEMA_VERSION, storage: { database: activeDbName, recovery: storageRecovery } });
+      }
       if (pathname.endsWith("/api/settings") && method === "PUT") { const body = await parseBody(options); const uiScale = Number(body.uiScale); if (!ZOOM_LEVELS.has(uiScale)) return errorResponse(new Error("UI scale must be 80–120 in 5% steps."), 400); const previous = Number(await getSetting("ui_scale", 100)) || 100; if (previous !== uiScale) { await setSetting("ui_scale", uiScale); notifyMutation("settings.updated", { setting: "uiScale" }); } return jsonResponse({ uiScale }); }
 
       return errorResponse(new Error("Browser API endpoint not found."), 404, "NOT_FOUND");
