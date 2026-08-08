@@ -7,6 +7,9 @@
   const STORAGE_RECOVERY_KEY = "thundershadow:storage-recovery:v1";
   const DB_OPEN_TIMEOUT_MS = 3500;
   const DB_TX_TIMEOUT_MS = 6500;
+  const EMERGENCY_STORAGE_KEY = "thundershadow:emergency-storage:v1";
+  const EMERGENCY_STORE_PREFIX = "thundershadow:emergency-store:v1:";
+  let emergencyStorage = (() => { try { return localStorage.getItem(EMERGENCY_STORAGE_KEY) === "1"; } catch { return false; } })();
   let cachedDb = null;
   let cachedDbName = null;
   let activeDbName = (() => {
@@ -35,6 +38,79 @@
   const deepClone = (value) => value == null ? value : structuredClone(value);
   const jsonBytes = (value) => new TextEncoder().encode(JSON.stringify(value, null, 2));
   const byteLength = (value) => jsonBytes(value).byteLength;
+
+  function activateEmergencyStorage(reason) {
+    if (!emergencyStorage) {
+      emergencyStorage = true;
+      try {
+        localStorage.setItem(EMERGENCY_STORAGE_KEY, "1");
+        localStorage.setItem(STORAGE_RECOVERY_KEY, JSON.stringify({
+          active: true,
+          mode: "localStorage-emergency",
+          previousDbName: activeDbName,
+          reason: String(reason?.message || reason || "IndexedDB is unavailable in this browser profile."),
+          activatedAt: nowISO()
+        }));
+        // The fallback starts from its own local state. Force Drive to rebuild its
+        // file index on reconnect, but do not fabricate deletion tombstones.
+        localStorage.removeItem("thundershadow:drive-remote-index");
+        // Preserve the lightweight forms cache used by the UI if IndexedDB dies
+        // before Drive is reconnected. This is best-effort and never deletes the
+        // original IndexedDB database.
+        const emergencyFormsKey = emergencyStoreKey(STORES.forms);
+        if (!localStorage.getItem(emergencyFormsKey)) {
+          try {
+            const cachedForms = JSON.parse(localStorage.getItem("thundershadow:cache:forms") || "null")?.value;
+            if (Array.isArray(cachedForms) && cachedForms.length) {
+              const records = {};
+              for (const form of cachedForms) if (form?.id) records[String(form.id)] = form;
+              localStorage.setItem(emergencyFormsKey, JSON.stringify(records));
+            }
+          } catch {}
+        }
+      } catch {}
+      try { cachedDb?.close(); } catch {}
+      cachedDb = null; cachedDbName = null;
+      window.dispatchEvent(new CustomEvent("thundershadow-storage-emergency", { detail: { reason: String(reason?.message || reason || "IndexedDB unavailable") } }));
+    }
+    return true;
+  }
+
+  function emergencyStoreKey(storeName) { return `${EMERGENCY_STORE_PREFIX}${storeName}`; }
+  function emergencyKeyFor(storeName, value) {
+    if (storeName === STORES.forms || storeName === STORES.rules) return String(value?.id || "");
+    if (storeName === STORES.settings || storeName === STORES.meta) return String(value?.key || "");
+    if (storeName === STORES.backups) return String(value?.filename || "");
+    return "";
+  }
+  function readEmergencyStore(storeName) {
+    if (storeName === STORES.backups) return {}; // Full snapshots are disabled in emergency mode.
+    try {
+      const value = JSON.parse(localStorage.getItem(emergencyStoreKey(storeName)) || "{}");
+      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    } catch { return {}; }
+  }
+  function writeEmergencyStore(storeName, records) {
+    if (storeName === STORES.backups) return;
+    try {
+      localStorage.setItem(emergencyStoreKey(storeName), JSON.stringify(records || {}));
+    } catch (error) {
+      const wrapped = new Error("Emergency browser storage is full. Reconnect Google Drive and export/delete old local data before adding more.");
+      wrapped.cause = error;
+      throw wrapped;
+    }
+  }
+  async function emergencyGet(storeName, key) { return deepClone(readEmergencyStore(storeName)[String(key)] ?? undefined); }
+  async function emergencyGetAll(storeName) { return Object.values(readEmergencyStore(storeName)).map(deepClone); }
+  async function emergencyGetAllKeys(storeName) { return Object.keys(readEmergencyStore(storeName)); }
+  async function emergencyPut(storeName, value) {
+    if (storeName === STORES.backups) return value;
+    const key = emergencyKeyFor(storeName, value);
+    if (!key) throw new Error(`Emergency storage could not determine a key for ${storeName}.`);
+    const records = readEmergencyStore(storeName); records[key] = deepClone(value); writeEmergencyStore(storeName, records); return key;
+  }
+  async function emergencyDelete(storeName, key) { const records = readEmergencyStore(storeName); delete records[String(key)]; writeEmergencyStore(storeName, records); }
+  async function emergencyClear(storeName) { writeEmergencyStore(storeName, {}); }
 
   function markRecoveryDatabase(reason) {
     const previous = activeDbName;
@@ -99,17 +175,24 @@
   }
 
   async function openDb({ allowRecovery = true } = {}) {
+    if (emergencyStorage) return null;
     try {
       return await openDbNamed(activeDbName);
     } catch (error) {
-      if (!allowRecovery) throw error;
-      const recoveryName = markRecoveryDatabase(error);
-      return openDbNamed(recoveryName);
+      if (!allowRecovery) { activateEmergencyStorage(error); return null; }
+      try {
+        const recoveryName = markRecoveryDatabase(error);
+        return await openDbNamed(recoveryName);
+      } catch (recoveryError) {
+        activateEmergencyStorage(recoveryError);
+        return null;
+      }
     }
   }
 
   async function withStore(storeName, mode, operation, allowRetry = true) {
     const db = await openDb();
+    if (!db || emergencyStorage) throw new Error("IndexedDB is unavailable; emergency storage should handle this operation.");
     try {
       return await new Promise((resolve, reject) => {
         let settled = false;
@@ -141,15 +224,21 @@
     }
   }
 
-  const get = (store, key) => withStore(store, "readonly", (s) => s.get(key));
-  const getAll = (store) => withStore(store, "readonly", (s) => s.getAll());
-  const getAllKeys = (store) => withStore(store, "readonly", (s) => s.getAllKeys());
-  const put = (store, value) => withStore(store, "readwrite", (s) => s.put(deepClone(value)));
-  const del = (store, key) => withStore(store, "readwrite", (s) => s.delete(key));
-  const clear = (store) => withStore(store, "readwrite", (s) => s.clear());
+  const get = async (store, key) => { const db = await openDb(); if (!db || emergencyStorage) return emergencyGet(store, key); return withStore(store, "readonly", (s) => s.get(key)); };
+  const getAll = async (store) => { const db = await openDb(); if (!db || emergencyStorage) return emergencyGetAll(store); return withStore(store, "readonly", (s) => s.getAll()); };
+  const getAllKeys = async (store) => { const db = await openDb(); if (!db || emergencyStorage) return emergencyGetAllKeys(store); return withStore(store, "readonly", (s) => s.getAllKeys()); };
+  const put = async (store, value) => { const db = await openDb(); if (!db || emergencyStorage) return emergencyPut(store, deepClone(value)); return withStore(store, "readwrite", (s) => s.put(deepClone(value))); };
+  const del = async (store, key) => { const db = await openDb(); if (!db || emergencyStorage) return emergencyDelete(store, key); return withStore(store, "readwrite", (s) => s.delete(key)); };
+  const clear = async (store) => { const db = await openDb(); if (!db || emergencyStorage) return emergencyClear(store); return withStore(store, "readwrite", (s) => s.clear()); };
 
   async function updateRecordAtomically(storeName, key, transform, allowRetry = true) {
     const db = await openDb();
+    if (!db || emergencyStorage) {
+      const current = await emergencyGet(storeName, key);
+      const result = transform(current == null ? null : deepClone(current));
+      if (result == null) await emergencyDelete(storeName, key); else await emergencyPut(storeName, result);
+      return result;
+    }
     try {
       return await new Promise((resolve, reject) => {
         let settled = false;
@@ -180,7 +269,7 @@
         tx.onabort = () => finish(reject, tx.error || new Error("Storage transaction was aborted."));
       });
     } catch (error) {
-      if (!allowRetry) throw error;
+      if (!allowRetry) { activateEmergencyStorage(error); return updateRecordAtomically(storeName, key, transform, false); }
       markRecoveryDatabase(error);
       return updateRecordAtomically(storeName, key, transform, false);
     }
@@ -417,7 +506,7 @@
     const rules = await allHydratedRules();
     const uiScaleRecord = includeBrowserSettings ? await get(STORES.settings, "ui_scale").catch(() => null) : null;
     const settings = includeBrowserSettings ? { uiScale: Number(uiScaleRecord?.value ?? 100) || 100 } : {};
-    return { app: "ThunderShadow", version: BACKUP_VERSION, storage: "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION, forms, rules, settings, settingsUpdatedAt: uiScaleRecord?.updatedAt || "", tombstones: await tombstones() };
+    return { app: "ThunderShadow", version: BACKUP_VERSION, storage: emergencyStorage ? "browser-localstorage-emergency" : "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION, forms, rules, settings, settingsUpdatedAt: uiScaleRecord?.updatedAt || "", tombstones: await tombstones() };
   }
 
   function previewPackage(payload) {
@@ -626,6 +715,7 @@
 
   function backupName(type = "manual") { return `ThunderShadow_Browser_${type}_${nowISO().replace(/[:.]/g, "-")}.json`; }
   async function createSnapshot(type = "manual") {
+    if (emergencyStorage) throw new Error("Verified browser snapshots are disabled while IndexedDB is unavailable. Use JSON export and Google Drive sync instead.");
     const payload = await exportPackage();
     const filename = backupName(type);
     const record = { filename, type, modifiedAt: nowISO(), createdAt: nowISO(), valid: true, sizeBytes: byteLength(payload), counts: previewPackage(payload).counts, payload };
@@ -819,6 +909,7 @@
         const body = await parseBody(options); const payload = typeof body === "string" ? JSON.parse(body) : body; await createSnapshot("safety-before-json-restore"); const result = await replacePackage(payload); notifyMutation("database.restored", { immediate: true }); return jsonResponse(result);
       }
       if (pathname.endsWith("/api/backups") && method === "GET") {
+        if (emergencyStorage) return jsonResponse({ directory: "Emergency local storage · IndexedDB unavailable", retention: 0, intervalHours: 0, backups: [], disabled: true });
         // Listing backups must be O(metadata), not O(total snapshot payload size).
         // getAll() cloned every historical full-library payload and could lock the UI.
         const keys = (await getAllKeys(STORES.backups)).map(String);
@@ -879,7 +970,7 @@
       if (pathname.endsWith("/api/settings") && method === "GET") {
         let storageRecovery = null;
         try { storageRecovery = JSON.parse(localStorage.getItem(STORAGE_RECOVERY_KEY) || "null"); } catch {}
-        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, backup: { directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS }, schemaVersion: SCHEMA_VERSION, storage: { database: activeDbName, recovery: storageRecovery } });
+        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, backup: emergencyStorage ? { directory: "Disabled while IndexedDB is unavailable", retention: 0, intervalHours: 0 } : { directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS }, schemaVersion: SCHEMA_VERSION, storage: { mode: emergencyStorage ? "localStorage-emergency" : "indexedDB", database: emergencyStorage ? null : activeDbName, recovery: storageRecovery } });
       }
       if (pathname.endsWith("/api/settings") && method === "PUT") { const body = await parseBody(options); const uiScale = Number(body.uiScale); if (!ZOOM_LEVELS.has(uiScale)) return errorResponse(new Error("UI scale must be 80–120 in 5% steps."), 400); const previous = Number(await getSetting("ui_scale", 100)) || 100; if (previous !== uiScale) { await setSetting("ui_scale", uiScale); notifyMutation("settings.updated", { setting: "uiScale" }); } return jsonResponse({ uiScale }); }
 

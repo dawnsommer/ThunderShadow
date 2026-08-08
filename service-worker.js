@@ -1,4 +1,4 @@
-const CACHE_NAME = "thundershadow-github-shell-v23";
+const CACHE_NAME = "thundershadow-github-shell-v24";
 const ASSETS = [
   "./",
   "./index.html",

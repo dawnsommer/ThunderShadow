@@ -271,8 +271,10 @@
 
   async function loadBackups() {
     const payload = await app.apiRequest("/api/backups");
-    document.getElementById("backupDirectoryText").textContent = `${payload.directory} · keep ${payload.retention} · scheduled every ${payload.intervalHours || "disabled"}${payload.intervalHours ? " hours" : ""}`;
-    document.getElementById("backupList").innerHTML = payload.backups.length ? payload.backups.map((backup) => `
+    document.getElementById("backupDirectoryText").textContent = payload.disabled ? `${payload.directory} · snapshots disabled in fallback mode` : `${payload.directory} · keep ${payload.retention} · scheduled every ${payload.intervalHours || "disabled"}${payload.intervalHours ? " hours" : ""}`;
+    const createBackupBtn = document.getElementById("createBackupBtn");
+    if (createBackupBtn) createBackupBtn.disabled = Boolean(payload.disabled);
+    document.getElementById("backupList").innerHTML = payload.disabled ? '<div class="frequency-empty">IndexedDB is unavailable in this browser profile. ThunderShadow is using emergency local storage; use Google Drive sync or JSON export for backup.</div>' : payload.backups.length ? payload.backups.map((backup) => `
       <article class="backup-row" data-backup-filename="${escapeHTML(backup.filename)}">
         <div><strong>${escapeHTML(backup.filename)}</strong><small>${escapeHTML((backup.modifiedAt || "Stored snapshot").slice(0, 19).replace("T", " "))} · ${Number.isFinite(backup.sizeBytes) ? `${(backup.sizeBytes / 1024).toFixed(1)} KB · ` : ""}${backup.valid ? (backup.counts ? `verified · ${backup.counts.forms} forms` : "stored · verify on preview") : escapeHTML(backup.error)}</small></div>
         <div class="v3-heading__actions"><button class="button button--subtle" data-backup-action="download" type="button"${backup.valid ? "" : " disabled"}>Download</button><button class="button button--ghost" data-backup-action="preview" type="button"${backup.valid ? "" : " disabled"}>Preview restore</button></div>
