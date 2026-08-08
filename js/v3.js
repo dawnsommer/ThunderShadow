@@ -27,10 +27,9 @@
       app.showLibrary();
       return;
     }
-    app.hideCoreViews();
     hide();
     state.activeArea = area;
-    views[area].hidden = false;
+    app.activateAuxiliaryView(area);
     setActiveNav(area);
     try {
       if (area === "library") await loadLibrary();

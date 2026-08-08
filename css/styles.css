@@ -3589,3 +3589,207 @@ html[data-ui-mode="touch"][data-active-view="logger"] .app-shell > footer {
     overscroll-behavior-y: contain;
   }
 }
+
+/* ========================================================================== */
+/* v16 — authoritative touch viewport + single-view isolation                 */
+/* ========================================================================== */
+
+/* In touch mode there is exactly one renderable workspace view. The hidden
+   attribute remains the semantic source, while this class invariant prevents
+   any previously-opened V3 screen from ever painting beneath Logger/Library. */
+html[data-ui-mode="touch"] .workspace > .view:not(.is-active-view) {
+  display: none !important;
+}
+html[data-ui-mode="touch"] .workspace > .view.is-active-view {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+@media (max-width: 640px), (max-height: 500px) and (orientation: landscape) and (max-width: 950px) {
+  /* visualViewport is the sole geometry source on phones. Do not mix 100dvh
+     with a separately measured viewport height; that mismatch caused the
+     exposed strip at the bottom when Safari/PWA chrome changed size. */
+  html[data-ui-mode="touch"],
+  html[data-ui-mode="touch"] body {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden !important;
+    overscroll-behavior: none;
+    background: var(--bg-deep);
+  }
+
+  html[data-ui-mode="touch"] body {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+  }
+
+  html[data-ui-mode="touch"] .storm,
+  html[data-ui-mode="touch"] .app-shell {
+    inset: auto !important;
+    top: var(--touch-viewport-top, 0px) !important;
+    left: var(--touch-viewport-left, 0px) !important;
+    width: var(--touch-viewport-width, 100vw) !important;
+    height: var(--touch-viewport-height, 100svh) !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    max-height: none !important;
+  }
+
+  html[data-ui-mode="touch"] .storm {
+    position: fixed;
+  }
+
+  html[data-ui-mode="touch"] .app-shell {
+    position: fixed;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--touch-topbar-height) var(--touch-nav-height) minmax(0, 1fr);
+    overflow: hidden !important;
+    transform: none !important;
+    zoom: 1 !important;
+  }
+
+  html[data-ui-mode="touch"] .app-shell > footer {
+    display: none !important;
+  }
+
+  html[data-ui-mode="touch"] .topbar,
+  html[data-ui-mode="touch"] .area-nav,
+  html[data-ui-mode="touch"] .workspace {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+  }
+
+  html[data-ui-mode="touch"] .topbar {
+    grid-row: 1;
+    overflow: hidden;
+  }
+
+  html[data-ui-mode="touch"] .area-nav {
+    grid-row: 2;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  html[data-ui-mode="touch"] .area-nav::-webkit-scrollbar { display: none; }
+
+  html[data-ui-mode="touch"] .workspace {
+    grid-row: 3;
+    position: relative;
+    height: auto !important;
+    padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+    overflow: hidden !important;
+  }
+
+  /* Every active view is clamped to the workspace and owns its own scrolling.
+     Sibling views cannot extend document height because they are not rendered. */
+  html[data-ui-mode="touch"] .workspace > .view.is-active-view {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100% !important;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+    overflow: hidden !important;
+  }
+
+  /* Logger without a selected form == form library. Keep the selection screen
+     inside the active viewport exactly like the actual logging screen. */
+  html[data-ui-mode="touch"] #libraryView.is-active-view,
+  html[data-ui-mode="touch"] #libraryView.is-active-view .library-layout,
+  html[data-ui-mode="touch"] #libraryView.is-active-view .panel--library-list {
+    width: 100%;
+    height: 100% !important;
+    min-height: 0;
+    max-height: 100%;
+  }
+  html[data-ui-mode="touch"] #libraryView.is-active-view .library-layout {
+    overflow: hidden;
+  }
+  html[data-ui-mode="touch"] #libraryView.is-active-view .panel--library-list {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  html[data-ui-mode="touch"] #libraryView.is-active-view .forms-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  html[data-ui-mode="touch"][data-active-view="logger"] .app-shell {
+    grid-template-rows: var(--touch-topbar-height) minmax(0, 1fr);
+  }
+  html[data-ui-mode="touch"][data-active-view="logger"] .area-nav {
+    display: none !important;
+  }
+  html[data-ui-mode="touch"][data-active-view="logger"] .workspace {
+    grid-row: 2;
+    padding: 0 !important;
+  }
+
+  html[data-ui-mode="touch"] .v3-view.is-active-view,
+  html[data-ui-mode="touch"] .v3-view.is-active-view .v3-scroll {
+    width: 100%;
+    height: 100% !important;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+  }
+  html[data-ui-mode="touch"] .v3-view.is-active-view .v3-scroll {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Light-mode rain gets a darker, wider stroke on touch displays. A 1px pale
+   cyan streak was effectively invisible on high-density iPhone screens. */
+html[data-theme="light"][data-ui-mode="touch"] .storm__rain {
+  display: block !important;
+  mix-blend-mode: multiply;
+  filter: contrast(1.18) !important;
+}
+html[data-theme="light"][data-ui-mode="touch"] .storm__rain--near {
+  opacity: .78 !important;
+  background-image: repeating-linear-gradient(
+    105deg,
+    transparent 0,
+    transparent 27px,
+    rgba(15, 63, 88, .72) 28px,
+    rgba(15, 63, 88, .72) 30px,
+    transparent 31px,
+    transparent 55px
+  ) !important;
+  background-size: 66px 104px;
+  animation: rain-near .72s linear infinite !important;
+}
+html[data-theme="light"][data-ui-mode="touch"] .storm__rain--far {
+  opacity: .48 !important;
+  background-image: repeating-linear-gradient(
+    106deg,
+    transparent 0,
+    transparent 20px,
+    rgba(35, 82, 107, .60) 21px,
+    rgba(35, 82, 107, .60) 22.5px,
+    transparent 23.5px,
+    transparent 44px
+  ) !important;
+  background-size: 54px 82px;
+  animation: rain-far 1.05s linear infinite !important;
+}

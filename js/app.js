@@ -78,7 +78,7 @@
   async function mutate(path, { method, body, entity }) { return window.ThunderShadowSync.mutate(path, { method, body, entity }); }
   async function downloadFromApi(path, filename) { const response = await rawApiRequest(path); if (!response.ok) throw new Error("Download failed."); const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || filename; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 
-  function applyTheme(mode) { const systemDark = matchMedia("(prefers-color-scheme: dark)").matches; document.documentElement.dataset.themeMode = mode; document.documentElement.dataset.theme = mode === "system" ? (systemDark ? "dark" : "light") : mode; localStorage.setItem("thundershadow:theme", mode); if (el.theme) el.theme.value = mode; document.querySelectorAll("[data-theme-choice]").forEach((button) => button.classList.toggle("is-active", button.dataset.themeChoice === mode)); }
+  function applyTheme(mode) { const systemDark = matchMedia("(prefers-color-scheme: dark)").matches; const resolvedTheme = mode === "system" ? (systemDark ? "dark" : "light") : mode; document.documentElement.dataset.themeMode = mode; document.documentElement.dataset.theme = resolvedTheme; localStorage.setItem("thundershadow:theme", mode); const themeColor = document.querySelector('meta[name="theme-color"]'); if (themeColor) themeColor.setAttribute("content", resolvedTheme === "light" ? "#90a9b9" : "#07111f"); if (el.theme) el.theme.value = mode; document.querySelectorAll("[data-theme-choice]").forEach((button) => button.classList.toggle("is-active", button.dataset.themeChoice === mode)); }
   function applyUiMode(mode) {
     state.uiMode = mode === "touch" ? "touch" : "desktop";
     document.documentElement.dataset.uiMode = state.uiMode;
@@ -129,26 +129,86 @@
   }
   function setEntryRailExpanded(expanded) { state.entryRailExpanded = Boolean(expanded); if (!state.entryRailExpanded && state.selectionMode) { state.selectionMode = false; state.selected.clear(); state.anchor = null; if (state.currentForm) renderNavigator(); } syncTouchLayout(); }
   function toggleTouchSection(key) { setTouchSectionPreference(key, !state.touchSections[key]); }
-  function setActiveView(view) { document.documentElement.dataset.activeView = view; }
-  function hideAuxiliaryViews() {
-    ["ruleLibraryView", "analysisView", "reviewView", "settingsView"].forEach((id) => {
-      const view = $(id);
-      if (view) view.hidden = true;
+
+  const PRIMARY_VIEWS = {
+    library: el.libraryView,
+    logger: el.loggerView,
+    rules: $("ruleLibraryView"),
+    analysis: $("analysisView"),
+    review: $("reviewView"),
+    settings: $("settingsView")
+  };
+  const AUXILIARY_AREAS = { library: "rules", analysis: "analysis", review: "review", settings: "settings" };
+
+  function setActiveView(view) {
+    document.documentElement.dataset.activeView = view;
+    Object.entries(PRIMARY_VIEWS).forEach(([name, node]) => {
+      if (!node) return;
+      node.classList.toggle("is-active-view", name === view);
+      node.setAttribute("aria-hidden", String(name !== view));
     });
   }
+
+  function hideAllPrimaryViews() {
+    Object.values(PRIMARY_VIEWS).forEach((view) => {
+      if (!view) return;
+      view.hidden = true;
+      view.classList.remove("is-active-view");
+      view.setAttribute("aria-hidden", "true");
+    });
+  }
+
+  function activatePrimaryView(view) {
+    const target = PRIMARY_VIEWS[view];
+    if (!target) return;
+    hideAllPrimaryViews();
+    target.hidden = false;
+    setActiveView(view);
+  }
+
+  function activateAuxiliaryView(area) {
+    const view = AUXILIARY_AREAS[area];
+    if (!view) return;
+    activatePrimaryView(view);
+    el.libraryTopActions.hidden = true;
+    el.loggerTopActions.hidden = true;
+    el.homeBtn.hidden = state.uiMode === "touch";
+    syncTouchLayout();
+  }
+
+  function hideAuxiliaryViews() {
+    ["rules", "analysis", "review", "settings"].forEach((name) => {
+      const view = PRIMARY_VIEWS[name];
+      if (!view) return;
+      view.hidden = true;
+      view.classList.remove("is-active-view");
+      view.setAttribute("aria-hidden", "true");
+    });
+  }
+
   let viewportTimer = 0;
-  let lastViewportHeight = 0;
+  let lastViewportGeometry = "";
   function syncVisualViewport(immediate = false) {
     clearTimeout(viewportTimer);
     const apply = () => {
       viewportTimer = 0;
-      const height = Math.round(window.visualViewport?.height || window.innerHeight || 0);
-      if (!height || Math.abs(height - lastViewportHeight) < 2) return;
-      lastViewportHeight = height;
-      document.documentElement.style.setProperty("--touch-viewport-height", `${height}px`);
+      const viewport = window.visualViewport;
+      const height = Math.round(viewport?.height || window.innerHeight || document.documentElement.clientHeight || 0);
+      const width = Math.round(viewport?.width || window.innerWidth || document.documentElement.clientWidth || 0);
+      const top = Math.round(viewport?.offsetTop || 0);
+      const left = Math.round(viewport?.offsetLeft || 0);
+      if (!height || !width) return;
+      const geometry = `${width}:${height}:${left}:${top}`;
+      if (geometry === lastViewportGeometry) return;
+      lastViewportGeometry = geometry;
+      const root = document.documentElement.style;
+      root.setProperty("--touch-viewport-height", `${height}px`);
+      root.setProperty("--touch-viewport-width", `${width}px`);
+      root.setProperty("--touch-viewport-top", `${top}px`);
+      root.setProperty("--touch-viewport-left", `${left}px`);
     };
     if (immediate) apply();
-    else viewportTimer = setTimeout(apply, 90);
+    else viewportTimer = setTimeout(apply, 60);
   }
   let layoutTimer = 0;
   function scheduleViewportLayout() {
@@ -192,8 +252,8 @@
     showToast(`Recovered unsent work for Entry ${entry.entryNumber}.`);
     return normalizeEntry({ ...entry, ...draft.value });
   }
-  async function openForm(form) { hideAuxiliaryViews(); state.currentForm = normalizeForm(await apiRequest(`/api/forms/${encodeURIComponent(form.id)}`)); if (!state.currentForm) throw new Error("Form data is incomplete. Sync again or restore a backup."); replaceForm(state.currentForm); state.entryRailExpanded = false; if (!state.currentForm.entries.length) await newEntry(); else { state.currentEntryNumber = state.currentForm.entries.some((e) => e.entryNumber === state.currentForm.currentEntry) ? state.currentForm.currentEntry : state.currentForm.entries.at(-1).entryNumber; const entity = { type: "entry", formId: state.currentForm.id, entryNumber: state.currentEntryNumber }, recovered = Boolean(window.ThunderShadowSync.getDraft(entity)); replaceEntry(recoverEntryDraft(currentEntry())); renderLogger(); if (recovered) saveEntry(); } el.libraryView.hidden = true; el.loggerView.hidden = false; el.libraryTopActions.hidden = true; el.loggerTopActions.hidden = false; el.homeBtn.hidden = false; setActiveView("logger"); syncTouchLayout(); document.querySelectorAll("[data-area]").forEach((b) => b.classList.toggle("is-active", b.dataset.area === "logger")); }
-  function showLibrary() { hideAuxiliaryViews(); el.loggerView.hidden = true; el.libraryView.hidden = false; el.loggerTopActions.hidden = true; el.libraryTopActions.hidden = false; el.homeBtn.hidden = true; state.currentForm = null; state.selected.clear(); state.entryRailExpanded = false; setActiveView("library"); renderLibrary(); syncTouchLayout(); document.querySelectorAll("[data-area]").forEach((b) => b.classList.toggle("is-active", b.dataset.area === "logger")); }
+  async function openForm(form) { state.currentForm = normalizeForm(await apiRequest(`/api/forms/${encodeURIComponent(form.id)}`)); if (!state.currentForm) throw new Error("Form data is incomplete. Sync again or restore a backup."); replaceForm(state.currentForm); state.entryRailExpanded = false; if (!state.currentForm.entries.length) await newEntry(); else { state.currentEntryNumber = state.currentForm.entries.some((e) => e.entryNumber === state.currentForm.currentEntry) ? state.currentForm.currentEntry : state.currentForm.entries.at(-1).entryNumber; const entity = { type: "entry", formId: state.currentForm.id, entryNumber: state.currentEntryNumber }, recovered = Boolean(window.ThunderShadowSync.getDraft(entity)); replaceEntry(recoverEntryDraft(currentEntry())); renderLogger(); if (recovered) saveEntry(); } activatePrimaryView("logger"); el.libraryTopActions.hidden = true; el.loggerTopActions.hidden = false; el.homeBtn.hidden = false; syncTouchLayout(); syncVisualViewport(true); document.querySelectorAll("[data-area]").forEach((b) => b.classList.toggle("is-active", b.dataset.area === "logger")); }
+  function showLibrary() { activatePrimaryView("library"); el.loggerTopActions.hidden = true; el.libraryTopActions.hidden = false; el.homeBtn.hidden = true; state.currentForm = null; state.selected.clear(); state.entryRailExpanded = false; renderLibrary(); syncTouchLayout(); syncVisualViewport(true); document.querySelectorAll("[data-area]").forEach((b) => b.classList.toggle("is-active", b.dataset.area === "logger")); }
   function replaceForm(form) { const index = state.forms.findIndex((f) => f.id === form.id); if (index >= 0) state.forms[index] = form; else state.forms.push(form); }
   function replaceEntry(entry) { const normalized = normalizeEntry(entry); const index = state.currentForm.entries.findIndex((e) => e.entryNumber === normalized.entryNumber); if (index >= 0) state.currentForm.entries[index] = normalized; else state.currentForm.entries.push(normalized); state.currentForm.entries.sort((a, b) => a.entryNumber - b.entryNumber); state.currentForm.maxEntryNumber = Math.max(state.currentForm.maxEntryNumber, normalized.entryNumber); state.currentForm.questions = state.currentForm.entries; replaceForm(state.currentForm); }
 
@@ -358,7 +418,7 @@
     $("topPrevBtn").addEventListener("click", () => navigate(-1)); $("bottomPrevBtn").addEventListener("click", () => navigate(-1)); $("topNextBtn").addEventListener("click", () => navigate(1));
     el.homeBtn.addEventListener("click", async () => { await saveEntry(true); await saveForm(); showLibrary(); });
     el.confirmCancel.addEventListener("click", () => { state.pendingConfirm = null; el.confirmDialog.close(); }); el.confirmAction.addEventListener("click", async () => { const action = state.pendingConfirm; state.pendingConfirm = null; el.confirmDialog.close(); if (action) await action(); });
-    $("zoomOutBtn").addEventListener("click", () => changeZoom(-1)); $("zoomInBtn").addEventListener("click", () => changeZoom(1)); $("zoomFitBtn").addEventListener("click", fitZoom); addEventListener("resize", scheduleViewportLayout, { passive: true }); addEventListener("orientationchange", scheduleViewportLayout, { passive: true }); window.visualViewport?.addEventListener("resize", syncVisualViewport, { passive: true });
+    $("zoomOutBtn").addEventListener("click", () => changeZoom(-1)); $("zoomInBtn").addEventListener("click", () => changeZoom(1)); $("zoomFitBtn").addEventListener("click", fitZoom); addEventListener("resize", scheduleViewportLayout, { passive: true }); addEventListener("orientationchange", scheduleViewportLayout, { passive: true }); window.visualViewport?.addEventListener("resize", syncVisualViewport, { passive: true }); window.visualViewport?.addEventListener("scroll", syncVisualViewport, { passive: true });
     $("uiModeToggleBtn").addEventListener("click", () => applyUiMode(state.uiMode === "touch" ? "desktop" : "touch")); document.querySelectorAll("[data-ui-mode]").forEach((button) => button.addEventListener("click", () => applyUiMode(button.dataset.uiMode)));
     $("backupBtn").addEventListener("click", () => backupAllForms().catch((e) => showToast(e.message))); $("restoreBackupBtn").addEventListener("click", () => $("restoreInput").click()); $("restoreInput").addEventListener("change", (e) => restoreBackup(e.target.files?.[0]));
     el.theme.addEventListener("change", () => applyTheme(el.theme.value)); document.querySelectorAll("[data-theme-choice]").forEach((button) => button.addEventListener("click", () => applyTheme(button.dataset.themeChoice))); matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if ((localStorage.getItem("thundershadow:theme") || "system") === "system") applyTheme("system"); });
@@ -384,8 +444,8 @@
     });
   }
 
-  async function initialize() { setActiveView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {}); }
+  async function initialize() { activatePrimaryView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {}); }
 
-  window.ThunderShadowApp = { apiRequest, rawApiRequest, downloadFromApi, showLibrary, showToast, refreshAccess: async () => {}, getForms: () => state.forms.map(({ id, name, date }) => ({ id, name, date })), openFormQuestion: async (formId, entryNumber) => { const form = state.forms.find((f) => f.id === formId); if (!form) throw new Error("Source form is no longer available."); await openForm(form); changeEntry(Number(entryNumber)); }, hideCoreViews: () => { el.libraryView.hidden = true; el.loggerView.hidden = true; el.libraryTopActions.hidden = true; el.loggerTopActions.hidden = true; el.homeBtn.hidden = false; setActiveView("other"); syncTouchLayout(); } };
+  window.ThunderShadowApp = { apiRequest, rawApiRequest, downloadFromApi, showLibrary, showToast, activateAuxiliaryView, refreshAccess: async () => {}, getForms: () => state.forms.map(({ id, name, date }) => ({ id, name, date })), openFormQuestion: async (formId, entryNumber) => { const form = state.forms.find((f) => f.id === formId); if (!form) throw new Error("Source form is no longer available."); await openForm(form); changeEntry(Number(entryNumber)); }, hideCoreViews: () => { hideAllPrimaryViews(); el.libraryTopActions.hidden = true; el.loggerTopActions.hidden = true; el.homeBtn.hidden = state.uiMode === "touch"; document.documentElement.dataset.activeView = "none"; syncTouchLayout(); } };
   initialize();
 })();
