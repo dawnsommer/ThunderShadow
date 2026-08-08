@@ -316,6 +316,7 @@ html[data-theme="light"] .storm::after { background: linear-gradient(to bottom, 
 }
 
 .sync-status[data-state="pending"] { color: var(--warning); }
+.sync-status[data-state="local"] { color: var(--muted); }
 .sync-status[data-state="offline"],
 .sync-status[data-state="conflict"] { color: var(--danger); }
 
@@ -2207,8 +2208,6 @@ html[data-theme="light"] .segmented-control button.is-active { color: #fff; }
 .app-shell[data-scale="110"] .brand__tagline,
 .app-shell[data-scale="115"] .brand__tagline,
 .app-shell[data-scale="120"] .brand__tagline,
-.app-shell[data-scale="115"] .sync-status span,
-.app-shell[data-scale="120"] .sync-status span,
 .app-shell[data-scale="115"] .mode-toggle span:last-child,
 .app-shell[data-scale="120"] .mode-toggle span:last-child { display: none; }
 .app-shell[data-scale="115"] .topbar,
@@ -2432,16 +2431,27 @@ html[data-ui-mode="touch"] .topbar__center { grid-column: auto; grid-row: auto; 
 html[data-ui-mode="touch"] .topbar__tools { gap: 5px; }
 html[data-ui-mode="touch"] .icon-button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
 html[data-ui-mode="touch"] .sync-status {
-  width: 44px;
-  min-width: 44px;
+  width: auto;
+  min-width: 62px;
+  max-width: 88px;
   height: 44px;
   min-height: 44px;
   justify-content: center;
-  padding: 0;
+  gap: 5px;
+  padding: 0 7px;
   border-radius: 12px;
 }
 html[data-ui-mode="touch"] .sync-status span { display: none; }
-html[data-ui-mode="touch"] .sync-status i { width: 9px; height: 9px; }
+html[data-ui-mode="touch"] .sync-status::after {
+  content: attr(data-short-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .01em;
+}
+html[data-ui-mode="touch"] .sync-status i { width: 9px; height: 9px; flex: 0 0 auto; }
 html[data-ui-mode="touch"] .area-nav { height: var(--touch-nav-height); }
 html[data-ui-mode="touch"] .area-nav button { min-width: 88px; min-height: 44px; padding-inline: 12px; font-size: 12px; }
 html[data-ui-mode="touch"] .workspace {

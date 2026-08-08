@@ -79,6 +79,50 @@
   async function downloadFromApi(path, filename) { const response = await rawApiRequest(path); if (!response.ok) throw new Error("Download failed."); const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || filename; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 
   function applyTheme(mode) { const systemDark = matchMedia("(prefers-color-scheme: dark)").matches; const resolvedTheme = mode === "system" ? (systemDark ? "dark" : "light") : mode; document.documentElement.dataset.themeMode = mode; document.documentElement.dataset.theme = resolvedTheme; localStorage.setItem("thundershadow:theme", mode); const themeColor = document.querySelector('meta[name="theme-color"]'); if (themeColor) themeColor.setAttribute("content", resolvedTheme === "light" ? "#90a9b9" : "#07111f"); if (el.theme) el.theme.value = mode; document.querySelectorAll("[data-theme-choice]").forEach((button) => button.classList.toggle("is-active", button.dataset.themeChoice === mode)); }
+
+  function syncStatusModel(detail = {}, source = "sync") {
+    const cloud = source === "cloud" ? detail : (window.ThunderShadowCloud?.getStatus?.() || {});
+    const cloudState = detail.cloudState || cloud.state || "signedout";
+    const dirty = Boolean(window.ThunderShadowCloud?.getDirtyState?.().dirty);
+    let state = detail.state || "";
+    if (source === "cloud" || !state) {
+      if (["syncing", "connecting", "initializing", "ready"].includes(cloudState) || dirty) state = "pending";
+      else if (["error", "offline", "unconfigured"].includes(cloudState)) state = "offline";
+      else if (cloudState === "signedout") state = "local";
+      else state = "synced";
+    }
+    const authorized = detail.authorized ?? cloud.authorized ?? Boolean(window.ThunderShadowCloud?.isAuthorized?.());
+    const lastSyncedAt = detail.lastSyncedAt || cloud.lastSyncedAt || null;
+    if (state === "pending") {
+      if (cloudState === "connecting" || cloudState === "initializing") return { state: "pending", cloudState, long: "Connecting cloud", short: "Connecting", lastSyncedAt, authorized };
+      if (cloudState === "ready" && !dirty) return { state: "pending", cloudState, long: "Cloud ready", short: "Ready", lastSyncedAt, authorized };
+      return { state: "pending", cloudState, long: "Syncing cloud", short: "Syncing", lastSyncedAt, authorized };
+    }
+    if (state === "local" || cloudState === "signedout" || (!authorized && cloudState !== "unconfigured")) return { state: "local", cloudState: "signedout", long: "Saved locally", short: "Local", lastSyncedAt, authorized: false };
+    if (state === "offline") return { state: "offline", cloudState, long: cloudState === "unconfigured" ? "Cloud unavailable" : "Cloud offline", short: "Offline", lastSyncedAt, authorized };
+    return { state: "synced", cloudState, long: "Cloud synced", short: "Synced", lastSyncedAt, authorized: true };
+  }
+
+  function renderSyncStatus(detail = {}, source = "sync") {
+    const button = $("syncStatusBtn"), text = $("syncStatusText"), retry = $("retrySyncBtn");
+    if (!button || !text) return;
+    const model = syncStatusModel(detail, source);
+    button.dataset.state = model.state;
+    button.dataset.cloudState = model.cloudState;
+    button.dataset.shortLabel = model.short;
+    text.textContent = model.long;
+    const time = model.lastSyncedAt ? new Date(model.lastSyncedAt) : null;
+    const timeLabel = time && !Number.isNaN(time.getTime()) ? time.toLocaleTimeString() : "";
+    button.title = timeLabel ? `${model.long} · Last Drive sync ${timeLabel} · browser storage is always active` : `${model.long} · browser storage is always active`;
+    button.setAttribute("aria-label", button.title);
+    if (retry) retry.hidden = !["offline"].includes(model.state);
+  }
+
+  function refreshSyncStatus() {
+    const cloud = window.ThunderShadowCloud?.getStatus?.();
+    if (cloud) renderSyncStatus(cloud, "cloud");
+    else window.ThunderShadowSync?.updateStatus?.().catch?.(() => {});
+  }
   function applyUiMode(mode) {
     state.uiMode = mode === "touch" ? "touch" : "desktop";
     document.documentElement.dataset.uiMode = state.uiMode;
@@ -423,7 +467,10 @@
     $("backupBtn").addEventListener("click", () => backupAllForms().catch((e) => showToast(e.message))); $("restoreBackupBtn").addEventListener("click", () => $("restoreInput").click()); $("restoreInput").addEventListener("change", (e) => restoreBackup(e.target.files?.[0]));
     el.theme.addEventListener("change", () => applyTheme(el.theme.value)); document.querySelectorAll("[data-theme-choice]").forEach((button) => button.addEventListener("click", () => applyTheme(button.dataset.themeChoice))); matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if ((localStorage.getItem("thundershadow:theme") || "system") === "system") applyTheme("system"); });
     $("keepServerBtn").addEventListener("click", () => resolveConflict("server").catch((error) => showToast(error.message))); $("keepDeviceBtn").addEventListener("click", () => resolveConflict("device").catch((error) => showToast(error.message))); $("mergeConflictBtn").addEventListener("click", () => resolveConflict("merge").catch((error) => showToast(error.message)));
-    addEventListener("thundershadow-sync-status", (event) => { const detail = event.detail || {}, status = detail.state || "synced", cloudState = detail.cloudState || "signedout"; $("syncStatusBtn").dataset.state = status; $("syncStatusText").textContent = status === "pending" ? "Syncing cloud" : status === "offline" ? (cloudState === "signedout" ? "Saved locally" : "Cloud offline") : cloudState === "synced" ? "Cloud synced" : "Saved locally"; $("syncStatusBtn").title = detail.lastSyncedAt ? `Last Drive sync ${new Date(detail.lastSyncedAt).toLocaleTimeString()} · browser storage is always active` : "Saved in this browser"; $("retrySyncBtn").hidden = status === "synced"; });
+    addEventListener("thundershadow-sync-status", (event) => renderSyncStatus(event.detail || {}, "sync"));
+    addEventListener("thundershadow-cloud-status", (event) => renderSyncStatus(event.detail || {}, "cloud"));
+    addEventListener("DOMContentLoaded", refreshSyncStatus, { once: true });
+    addEventListener("pageshow", refreshSyncStatus);
     addEventListener("thundershadow-conflict", (event) => showConflict(event.detail)); $("retrySyncBtn").addEventListener("click", () => { if (!window.ThunderShadowCloud?.isAuthorized?.()) window.ThunderShadowCloud?.connect?.().catch((error) => showToast(error.message)); else window.ThunderShadowSync.replay(); });
     addEventListener("thundershadow-server-event", (event) => handleServerEvent(event.detail).catch((error) => showToast(error.message))); addEventListener("thundershadow-sync-reconnected", () => reconcileCurrentForm()); addEventListener("thundershadow-cloud-merged", async () => { try { const forms = normalizeForms(await apiRequest("/api/forms")); state.forms = forms; if (state.currentForm) { const merged = forms.find((form) => form.id === state.currentForm.id); if (merged) { state.currentForm = merged; state.currentEntryNumber = merged.entries.some((entry) => entry.entryNumber === state.currentEntryNumber) ? state.currentEntryNumber : (merged.currentEntry || merged.entries.at(-1)?.entryNumber || 1); renderLogger(); } else showLibrary(); } else renderLibrary(); } catch (error) { showToast(error.message); } });
     addEventListener("thundershadow-entry-remapped", (event) => { const detail = event.detail; if (state.currentForm?.id !== detail.formId) return; state.currentForm.entries = state.currentForm.entries.filter((entry) => entry.entryNumber !== detail.provisionalEntryNumber); replaceEntry(detail.entry); if (state.currentEntryNumber === detail.provisionalEntryNumber) state.currentEntryNumber = detail.entry.entryNumber; renderLogger(); });
@@ -444,7 +491,7 @@
     });
   }
 
-  async function initialize() { activatePrimaryView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {}); }
+  async function initialize() { activatePrimaryView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); renderSyncStatus({ state: "local", cloudState: "signedout" }, "sync"); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); queueMicrotask(refreshSyncStatus); if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {}); }
 
   window.ThunderShadowApp = { apiRequest, rawApiRequest, downloadFromApi, showLibrary, showToast, activateAuxiliaryView, refreshAccess: async () => {}, getForms: () => state.forms.map(({ id, name, date }) => ({ id, name, date })), openFormQuestion: async (formId, entryNumber) => { const form = state.forms.find((f) => f.id === formId); if (!form) throw new Error("Source form is no longer available."); await openForm(form); changeEntry(Number(entryNumber)); }, hideCoreViews: () => { hideAllPrimaryViews(); el.libraryTopActions.hidden = true; el.loggerTopActions.hidden = true; el.homeBtn.hidden = state.uiMode === "touch"; document.documentElement.dataset.activeView = "none"; syncTouchLayout(); } };
   initialize();

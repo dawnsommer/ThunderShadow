@@ -11,12 +11,12 @@
   <meta name="application-name" content="ThunderShadow">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=17"></script>
-  <script src="js/uuid.js?v=17"></script>
+  <script src="js/theme-init.js?v=18"></script>
+  <script src="js/uuid.js?v=18"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=17">
+  <link rel="stylesheet" href="css/styles.css?v=18">
 </head>
 <body>
   <div class="storm" aria-hidden="true">
@@ -62,7 +62,7 @@
       <div class="topbar__tools">
         <label class="theme-control" aria-label="Color theme"><select id="themeModeSelect"><option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option></select></label>
         <button id="uiModeToggleBtn" class="mode-toggle" type="button" aria-pressed="false" title="Use larger tablet-style controls"><span aria-hidden="true">◫</span><span id="uiModeToggleText">Touch UI</span></button>
-        <button id="syncStatusBtn" class="sync-status" type="button" data-state="synced" aria-label="Synchronization status">
+        <button id="syncStatusBtn" class="sync-status" type="button" data-state="local" data-short-label="Local" aria-label="Synchronization status">
           <i></i><span id="syncStatusText">Saved locally</span>
         </button>
         <button id="retrySyncBtn" class="icon-button" type="button" aria-label="Retry synchronization" title="Retry sync" hidden>↻</button>
@@ -619,13 +619,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=17" defer></script>
-  <script src="js/reasoning.js?v=17" defer></script>
-  <script src="js/analytics.js?v=17" defer></script>
-  <script src="js/browser-api.js?v=17" defer></script>
-  <script src="js/sync.js?v=17" defer></script>
-  <script src="js/app.js?v=17" defer></script>
-  <script src="js/v3.js?v=17" defer></script>
-  <script src="js/cloud-sync.js?v=17" defer></script>
+  <script src="js/config.js?v=18" defer></script>
+  <script src="js/reasoning.js?v=18" defer></script>
+  <script src="js/analytics.js?v=18" defer></script>
+  <script src="js/browser-api.js?v=18" defer></script>
+  <script src="js/sync.js?v=18" defer></script>
+  <script src="js/app.js?v=18" defer></script>
+  <script src="js/v3.js?v=18" defer></script>
+  <script src="js/cloud-sync.js?v=18" defer></script>
 </body>
 </html>

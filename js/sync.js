@@ -7,6 +7,7 @@
   const uuid = window.ThunderShadowUUID;
   let flusher = null;
   let lastSyncedAt = null;
+  let lastStatus = null;
   let clientId = localStorage.getItem(CLIENT_KEY);
   if (!clientId) { clientId = uuid(); localStorage.setItem(CLIENT_KEY, clientId); }
 
@@ -27,8 +28,9 @@
   async function updateStatus(forceState = null) {
     const cloud = window.ThunderShadowCloud?.getStatus?.();
     const dirty = Boolean(window.ThunderShadowCloud?.getDirtyState?.().dirty);
-    const state = forceState || (["syncing", "connecting"].includes(cloud?.state) || dirty ? "pending" : ["error", "offline", "signedout", "unconfigured"].includes(cloud?.state) ? "offline" : "synced");
-    const detail = { state, pending: state === "pending" ? 1 : 0, conflicts: 0, lastSyncedAt: cloud?.lastSyncedAt || lastSyncedAt, storage: "browser", cloudState: cloud?.state || "signedout" };
+    const state = forceState || (["syncing", "connecting", "initializing", "ready"].includes(cloud?.state) || dirty ? "pending" : cloud?.state === "signedout" ? "local" : ["error", "offline", "unconfigured"].includes(cloud?.state) ? "offline" : "synced");
+    const detail = { state, pending: state === "pending" ? 1 : 0, conflicts: 0, lastSyncedAt: cloud?.lastSyncedAt || lastSyncedAt, storage: "browser", cloudState: cloud?.state || "signedout", authorized: Boolean(cloud?.authorized) };
+    lastStatus = detail;
     emit("thundershadow-sync-status", detail);
     return detail;
   }
@@ -62,7 +64,7 @@
 
   window.ThunderShadowSync = {
     initialize, mutate, replay, resolveConflict, hasPendingEntity, hasPendingForForm,
-    setCache, getCache, updateStatus, saveDraft, getDraft, clearDraft, uuid, clientId,
+    setCache, getCache, updateStatus, getStatus: () => lastStatus, saveDraft, getDraft, clearDraft, uuid, clientId,
     setFlusher(callback) { flusher = callback; }
   };
 })();
