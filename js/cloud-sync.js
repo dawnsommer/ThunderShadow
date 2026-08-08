@@ -484,6 +484,7 @@
     const currentIndex = remoteIndexFor(files);
     const firstSync = !Object.keys(priorIndex.files || {}).length;
     const manifestFile = byName.get(manifestFileName());
+    const manifestChanged = Boolean(manifestFile && (firstSync || priorIndex.files?.[manifestFile.name] !== currentIndex.files?.[manifestFile.name]));
     let manifest = blankManifest();
     if (manifestFile) manifest = validManifest(await readJsonFile(manifestFile));
 
@@ -538,7 +539,8 @@
         tombstones: manifest.tombstones
       },
       currentIndex,
-      firstSync
+      firstSync,
+      manifestChanged
     };
   }
 
@@ -721,6 +723,23 @@
       setState("syncing", background ? "Synchronizing pending changes with Google Drive…" : "Synchronizing browser data with Google Drive…");
       await getValidDriveAccessToken();
       const filesBefore = await listNamespaceFiles();
+
+      // Fast path: when this browser has no pending local edits and the Drive
+      // namespace index is byte-for-byte unchanged, there is nothing to merge or
+      // upload. Avoid exporting the complete local library and touching every
+      // tombstone on routine foreground/manual checks. This is particularly
+      // important on large desktop libraries.
+      const priorRemoteIndex = readRemoteIndex();
+      const currentRemoteIndex = remoteIndexFor(filesBefore);
+      if (!dirtyAtStart.dirty && Object.keys(priorRemoteIndex.files || {}).length && sameRemoteIndex(priorRemoteIndex, currentRemoteIndex)) {
+        saveRemoteIndex(filesBefore);
+        lastSyncedAt = new Date().toISOString();
+        localStorage.setItem(LAST_SYNC_KEY, lastSyncedAt);
+        setState("synced", "Synced — no cloud changes were needed.");
+        debug(`fast-complete reason=${reason} reads=${diagnostics.driveReads - beforeReads} writes=0 skipped=1`);
+        return null;
+      }
+
       const remote = await buildRemoteDelta(filesBefore);
 
       // Remote data is applied through BrowserApi.mergePackage, which writes directly to
@@ -749,7 +768,14 @@
       lastSyncedAt = new Date().toISOString();
       localStorage.setItem(LAST_SYNC_KEY, lastSyncedAt);
       setState("synced", result.fileWrites ? "Google Drive synchronization complete." : "Synced — no cloud changes were needed.");
-      window.dispatchEvent(new CustomEvent("thundershadow-cloud-merged", { detail: { reason, writes: result.fileWrites } }));
+      const remoteApplied = Boolean(
+        remote.firstSync ||
+        remote.manifestChanged ||
+        remote.deltaPayload.forms?.length ||
+        remote.deltaPayload.rules?.length ||
+        remote.deltaPayload.settingsUpdatedAt
+      );
+      window.dispatchEvent(new CustomEvent("thundershadow-cloud-merged", { detail: { reason, writes: result.fileWrites, remoteApplied } }));
       debug(`complete reason=${reason} reads=${diagnostics.driveReads - beforeReads} writes=${diagnostics.driveWrites - beforeWrites} skipped=${diagnostics.writesSkipped - beforeSkipped}`);
       return merged;
     })().catch((error) => {

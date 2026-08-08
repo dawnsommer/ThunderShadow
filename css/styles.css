@@ -3819,3 +3819,78 @@ html[data-rain-effect="off"] .storm__rain {
   will-change: auto !important;
 }
 
+
+/* ========================================================================== */
+/* v18.6 — desktop compositing + light-rain visibility                         */
+/* ========================================================================== */
+/* Desktop previously animated background-position across two oversized layers,
+   forcing continuous raster repaint behind glass panels. Move the already
+   repeating texture as a composited transform instead. Touch keeps its proven
+   v14/v16 behavior. */
+html[data-ui-mode="desktop"] .storm {
+  contain: paint;
+}
+html[data-ui-mode="desktop"] .storm__rain {
+  pointer-events: none;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform-origin: 50% 50%;
+}
+html[data-ui-mode="desktop"] .storm__rain--near {
+  animation: rain-near-composited .72s linear infinite;
+}
+html[data-ui-mode="desktop"] .storm__rain--far {
+  animation: rain-far-composited 1.05s linear infinite;
+}
+@keyframes rain-near-composited {
+  from { transform: translate3d(0, -110px, 0) rotate(8deg); }
+  to   { transform: translate3d(0, 0, 0) rotate(8deg); }
+}
+@keyframes rain-far-composited {
+  from { transform: translate3d(0, -84px, 0) rotate(8deg); }
+  to   { transform: translate3d(0, 0, 0) rotate(8deg); }
+}
+
+/* Match the clearly visible iPhone light-rain treatment without making the
+   larger desktop canvas excessively dark. Wider, darker streaks retain
+   contrast over the pale storm background. */
+html[data-theme="light"][data-ui-mode="desktop"] .storm__rain {
+  mix-blend-mode: multiply;
+  filter: contrast(1.12);
+}
+html[data-theme="light"][data-ui-mode="desktop"] .storm__rain--near {
+  opacity: .66;
+  background-image: repeating-linear-gradient(
+    105deg,
+    transparent 0,
+    transparent 28px,
+    rgba(15, 63, 88, .68) 29px,
+    rgba(15, 63, 88, .68) 31px,
+    transparent 32px,
+    transparent 58px
+  );
+  background-size: 68px 106px;
+}
+html[data-theme="light"][data-ui-mode="desktop"] .storm__rain--far {
+  opacity: .40;
+  background-image: repeating-linear-gradient(
+    106deg,
+    transparent 0,
+    transparent 21px,
+    rgba(35, 82, 107, .55) 22px,
+    rgba(35, 82, 107, .55) 23.5px,
+    transparent 24.5px,
+    transparent 46px
+  );
+  background-size: 55px 83px;
+}
+
+/* Rain-off remains authoritative after all v18.6 desktop overrides. */
+html[data-rain-effect="off"] .storm__rain {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  animation: none !important;
+  background-image: none !important;
+  will-change: auto !important;
+}
