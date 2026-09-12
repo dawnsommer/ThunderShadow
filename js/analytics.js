@@ -70,23 +70,32 @@ function findRuleDuplicates(candidate, rules, nearThreshold = 0.55) {
   return { exact, near };
 }
 
-function nextReviewSchedule(response, successfulReviews = 0, reviewedAt = new Date()) {
+function nextReviewSchedule(response, successfulReviews = 0, reviewedAt = new Date(), customIntervals = {}) {
+  const defaults = { again: 1, hard: 3, good: 7, easy: 30 };
+  const configured = Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => {
+    const value = Number(customIntervals?.[key]);
+    return [key, Number.isInteger(value) && value >= 1 && value <= 3650 ? value : fallback];
+  }));
   const intervals = {
-    still_weak: 1,
-    partly_reliable: 3,
-    reliable_today: 7,
-    mastered: successfulReviews + 1 >= 3 ? 45 : 21,
-    skip: 1
+    again: configured.again,
+    hard: configured.hard,
+    good: configured.good,
+    easy: configured.easy,
+    still_weak: configured.again,
+    partly_reliable: configured.hard,
+    reliable_today: configured.good,
+    mastered: configured.easy,
+    skip: configured.again
   };
   if (!(response in intervals)) throw new Error("Unknown review response.");
-  const success = ["reliable_today", "mastered"].includes(response);
+  const success = ["good", "easy", "reliable_today", "mastered"].includes(response);
   const next = new Date(reviewedAt);
   next.setUTCDate(next.getUTCDate() + intervals[response]);
   return {
     intervalDays: intervals[response],
     nextReviewAt: next.toISOString().slice(0, 10),
     successfulReviews: success ? successfulReviews + 1 : 0,
-    status: response === "mastered" ? "mastered" : response === "still_weak" ? "active" : null
+    status: ["easy", "mastered"].includes(response) ? "mastered" : ["again", "still_weak"].includes(response) ? "active" : null
   };
 }
 

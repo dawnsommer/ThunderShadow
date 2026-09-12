@@ -8,9 +8,9 @@
     review: document.getElementById("reviewView"),
     settings: document.getElementById("settingsView")
   };
-  const state = { rules: [], candidates: [], analytics: null, review: null, activeArea: null, restorePreview: null };
+  const state = { rules: [], candidates: [], analytics: null, review: null, reviewIntervals: { again: 1, hard: 3, good: 7, easy: 30 }, reviewedThisSession: 0, activeArea: null, restorePreview: null };
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
-  const labelResponse = (value) => ({ still_weak: "Still weak", partly_reliable: "Partly reliable", reliable_today: "Reliable today", mastered: "Mastered", skip: "Skip" })[value] || value;
+  const labelResponse = (value) => ({ again: "Again", hard: "Hard", good: "Good", easy: "Easy", still_weak: "Still weak", partly_reliable: "Partly reliable", reliable_today: "Reliable today", mastered: "Mastered", skip: "Skip" })[value] || value;
 
   function hide() {
     Object.values(views).forEach((view) => { view.hidden = true; });
@@ -43,6 +43,7 @@
   }
 
   function ruleCard(rule) {
+    const suspended = rule.status === "archived";
     const sourceFormAvailable = rule.sourceFormId && app.getForms().some((form) => form.id === rule.sourceFormId);
     const source = sourceFormAvailable && rule.sourceQuestionNumber
       ? `<button class="button button--subtle" data-rule-action="source" type="button">Open source Entry ${rule.sourceQuestionNumber}</button>`
@@ -57,27 +58,31 @@
       ? rule.reviewHistory.slice(0, 5).map((review) => `<li>${escapeHTML(labelResponse(review.response))} · ${escapeHTML(review.reviewedAt.slice(0, 10))} → ${escapeHTML(review.nextReviewAt)}</li>`).join("")
       : "<li>No reviews yet.</li>";
     return `
-      <article class="rule-card" data-rule-id="${escapeHTML(rule.id)}">
-        <div class="rule-card__meta">
+      <details class="rule-card${suspended ? " rule-card--suspended" : ""}" data-rule-id="${escapeHTML(rule.id)}">
+        <summary class="rule-card__summary">
+          <span class="rule-card__summary-main"><span class="badge">${escapeHTML(rule.patternLabel)}</span><strong>${escapeHTML(rule.ruleText)}</strong></span>
+          <span class="rule-card__summary-meta">${rule.occurrenceCount} occurrence${rule.occurrenceCount === 1 ? "" : "s"} · ${suspended ? "suspended" : `due ${escapeHTML(rule.nextReviewAt || "today")}`}</span>
+        </summary>
+        <div class="rule-card__details">
+          <div class="rule-card__meta">
           <span class="badge">${escapeHTML(rule.patternLabel)}</span>
           <span>${rule.occurrenceCount} exact occurrence${rule.occurrenceCount === 1 ? "" : "s"}</span>
           <span>${escapeHTML(rule.firstSeen)} → ${escapeHTML(rule.lastSeen)}</span>
-          <span>Next: ${escapeHTML(rule.nextReviewAt || "unscheduled")}</span>
+            <span>${suspended ? "Removed from review" : `Next review: ${escapeHTML(rule.nextReviewAt || "today")}`}</span>
+          </div>
+          <label class="rule-edit-label"><span>Rule wording</span><textarea class="rule-card__text" maxlength="12000" aria-label="Canonical rule wording">${escapeHTML(rule.ruleText)}</textarea></label>
+          <div class="rule-card__controls">
+            ${suspended ? "" : `<label>Status <select class="rule-status">${["new", "active", "improving", "mastered"].map((status) => `<option value="${status}"${rule.status === status ? " selected" : ""}>${status}</option>`).join("")}</select></label>`}
+            <label class="rule-notes-label">Notes <input class="rule-notes" maxlength="12000" value="${escapeHTML(rule.notes)}" placeholder="Optional notes"></label>
+            <button class="button button--primary" data-rule-action="save" type="button">Save</button>
+            ${source}
+            <button class="button ${suspended ? "button--subtle" : "button--danger-ghost"}" data-rule-action="${suspended ? "resume" : "suspend"}" type="button">${suspended ? "Resume reviews" : "Suspend"}</button>
+            <button class="button button--danger" data-rule-action="delete" type="button">Delete permanently</button>
+          </div>
+          ${suggestions ? `<details class="duplicate-details"><summary>Suggested near-duplicate grouping (${rule.nearDuplicates.length})</summary>${suggestions}</details>` : ""}
+          <details class="review-history"><summary>Review history (${rule.reviewHistory.length})</summary><ul>${history}</ul></details>
         </div>
-        <textarea class="rule-card__text" maxlength="12000" aria-label="Canonical rule wording">${escapeHTML(rule.ruleText)}</textarea>
-        <div class="rule-card__controls">
-          <label>Status <select class="rule-status">
-            ${["new", "active", "improving", "mastered", "archived"].map((status) => `<option value="${status}"${rule.status === status ? " selected" : ""}>${status}</option>`).join("")}
-          </select></label>
-          <label class="rule-notes-label">Notes <input class="rule-notes" maxlength="12000" value="${escapeHTML(rule.notes)}" placeholder="Optional notes"></label>
-          <button class="button button--primary" data-rule-action="save" type="button">Save</button>
-          ${source}
-          <button class="button button--danger-ghost" data-rule-action="archive" type="button">Archive</button>
-          <button class="button button--danger" data-rule-action="delete" type="button">Delete permanently</button>
-        </div>
-        ${suggestions ? `<details class="duplicate-details"><summary>Suggested near-duplicate grouping (${rule.nearDuplicates.length})</summary>${suggestions}</details>` : ""}
-        <details class="review-history"><summary>Review history (${rule.reviewHistory.length})</summary><ul>${history}</ul></details>
-      </article>
+      </details>
     `;
   }
 
@@ -85,34 +90,75 @@
     const payload = await app.apiRequest("/api/rules");
     state.rules = payload.rules;
     state.candidates = payload.candidates;
-    document.getElementById("ruleCountBadge").textContent = `${state.rules.length} rule${state.rules.length === 1 ? "" : "s"}`;
-    document.getElementById("personalRulesList").innerHTML = state.rules.length
-      ? state.rules.map(ruleCard).join("")
-      : '<div class="frequency-empty">No personal rules yet. Add one from a logged Reasoning Note below.</div>';
+    const activeRules = state.rules.filter((rule) => rule.status !== "archived");
+    const suspendedRules = state.rules.filter((rule) => rule.status === "archived");
+    document.getElementById("ruleCountBadge").textContent = `${activeRules.length} active`;
+    document.getElementById("suspendedCountBadge").textContent = `${suspendedRules.length} suspended`;
+    document.getElementById("candidateCountBadge").textContent = `${state.candidates.length} found`;
+    document.getElementById("candidateBulkActions").hidden = !state.candidates.length;
+    document.getElementById("selectAllCandidates").checked = false;
+    document.getElementById("selectAllCandidates").indeterminate = false;
+    document.getElementById("personalRulesList").innerHTML = activeRules.length
+      ? activeRules.map(ruleCard).join("")
+      : '<div class="frequency-empty">No active rules yet. Add one from a logged Reasoning Note above.</div>';
+    document.getElementById("suspendedRulesList").innerHTML = suspendedRules.length
+      ? suspendedRules.map(ruleCard).join("")
+      : '<div class="frequency-empty">No suspended rules.</div>';
     document.getElementById("ruleCandidatesList").innerHTML = state.candidates.length
       ? state.candidates.map((candidate, index) => `
           <article class="candidate-card" data-candidate-index="${index}">
-            <div><span class="badge">${escapeHTML(candidate.patternLabel)}</span><strong>${escapeHTML(candidate.ruleText)}</strong><small>${escapeHTML(candidate.sourceFormName)} · Entry ${candidate.sourceQuestionNumber} · ${escapeHTML(candidate.sourceDate)}</small></div>
+            <label class="candidate-card__select"><input type="checkbox" data-candidate-select aria-label="Select rule from ${escapeHTML(candidate.sourceFormName)}"></label>
+            <div class="candidate-card__content"><span class="badge">${escapeHTML(candidate.patternLabel)}</span><strong>${escapeHTML(candidate.ruleText)}</strong><small>${escapeHTML(candidate.sourceFormName)} · Entry ${candidate.sourceQuestionNumber} · ${escapeHTML(candidate.sourceDate)}</small></div>
             <button class="button button--primary" data-candidate-action="add" type="button">Add to library</button>
           </article>
         `).join("")
       : '<div class="frequency-empty">Every Reasoning Note is already represented, or no Reasoning Notes have been logged.</div>';
+    updateCandidateSelection();
   }
 
-  async function addCandidate(index) {
-    const candidate = state.candidates[index];
-    if (!candidate) return;
-    const result = await app.apiRequest("/api/rules", {
-      method: "POST",
-      body: JSON.stringify({
-        pattern: candidate.pattern,
-        ruleText: candidate.ruleText,
-        sourceFormId: candidate.sourceFormId,
-        sourceQuestionNumber: candidate.sourceQuestionNumber
-      })
-    });
-    app.showToast(result.nearDuplicates.length ? `Rule added; ${result.nearDuplicates.length} possible near-duplicate shown.` : "Rule added to the library.");
-    await loadLibrary();
+  function selectedCandidateIndices() {
+    return [...document.querySelectorAll("#ruleCandidatesList [data-candidate-select]:checked")].map((checkbox) => Number(checkbox.closest("[data-candidate-index]").dataset.candidateIndex));
+  }
+
+  function updateCandidateSelection() {
+    const selected = selectedCandidateIndices();
+    const total = state.candidates.length;
+    document.getElementById("candidateSelectionCount").textContent = `${selected.length} selected`;
+    document.getElementById("addSelectedCandidatesBtn").disabled = !selected.length;
+    const selectAll = document.getElementById("selectAllCandidates");
+    selectAll.checked = Boolean(total && selected.length === total);
+    selectAll.indeterminate = Boolean(selected.length && selected.length < total);
+  }
+
+  async function addCandidates(indices) {
+    const uniqueIndices = [...new Set(indices)].filter((index) => state.candidates[index]);
+    if (!uniqueIndices.length) return;
+    const bulkActions = document.getElementById("candidateBulkActions");
+    const candidateList = document.getElementById("ruleCandidatesList");
+    bulkActions.setAttribute("aria-busy", "true");
+    candidateList.setAttribute("aria-busy", "true");
+    [...bulkActions.querySelectorAll("button, input"), ...candidateList.querySelectorAll("button, input")].forEach((control) => { control.disabled = true; });
+    let added = 0;
+    let failed = 0;
+    try {
+      for (const index of uniqueIndices) {
+        const candidate = state.candidates[index];
+        try {
+          await app.apiRequest("/api/rules", { method: "POST", body: JSON.stringify({ pattern: candidate.pattern, ruleText: candidate.ruleText, sourceFormId: candidate.sourceFormId, sourceQuestionNumber: candidate.sourceQuestionNumber }) });
+          added += 1;
+        } catch (error) {
+          failed += 1;
+          console.error("Could not add rule candidate", error);
+        }
+      }
+      app.showToast(failed ? `${added} rule${added === 1 ? "" : "s"} added; ${failed} could not be added.` : `${added} rule${added === 1 ? "" : "s"} added to the library.`);
+      await loadLibrary();
+    } finally {
+      bulkActions.removeAttribute("aria-busy");
+      candidateList.removeAttribute("aria-busy");
+      [...bulkActions.querySelectorAll("button, input"), ...candidateList.querySelectorAll("button, input")].forEach((control) => { control.disabled = false; });
+      updateCandidateSelection();
+    }
   }
 
   async function deleteRule(card) {
@@ -131,16 +177,18 @@
     const existing = state.rules.find((rule) => rule.id === id);
     const ruleText = card.querySelector(".rule-card__text").value.trim();
     if (!ruleText) throw new Error("Rule wording cannot be blank.");
+    const payload = {
+      pattern: existing.pattern,
+      ruleText,
+      status: forceStatus || card.querySelector(".rule-status")?.value || existing.status,
+      notes: card.querySelector(".rule-notes").value
+    };
+    if (forceStatus === "active") payload.nextReviewAt = new Date().toISOString().slice(0, 10);
     await app.apiRequest(`/api/rules/${encodeURIComponent(id)}`, {
       method: "PUT",
-      body: JSON.stringify({
-        pattern: existing.pattern,
-        ruleText,
-        status: forceStatus || card.querySelector(".rule-status").value,
-        notes: card.querySelector(".rule-notes").value
-      })
+      body: JSON.stringify(payload)
     });
-    app.showToast(forceStatus === "archived" ? "Rule archived." : "Rule updated.");
+    app.showToast(forceStatus === "archived" ? "Rule suspended and removed from daily review." : forceStatus === "active" ? "Rule returned to daily review." : "Rule updated.");
     await loadLibrary();
   }
 
@@ -221,30 +269,76 @@
   }
 
   function reviewCard(rule) {
+    const intervals = state.reviewIntervals;
     return `
       <article class="panel review-card" data-rule-id="${escapeHTML(rule.id)}">
-        <div class="rule-card__meta"><span class="badge">${escapeHTML(rule.patternLabel)}</span><span>${rule.occurrenceCount} occurrences</span><span>Status: ${escapeHTML(rule.status)}</span></div>
-        <h2>${escapeHTML(rule.ruleText)}</h2>
-        ${rule.notes ? `<p>${escapeHTML(rule.notes)}</p>` : ""}
-        <p class="muted">Last seen ${escapeHTML(rule.lastSeen)} · next review ${escapeHTML(rule.nextReviewAt || "today")}</p>
+        <div class="review-card__topline"><div class="rule-card__meta"><span class="badge">${escapeHTML(rule.patternLabel)}</span><span>${rule.occurrenceCount} occurrence${rule.occurrenceCount === 1 ? "" : "s"}</span><span>Last seen ${escapeHTML(rule.lastSeen)}</span></div><button class="button button--danger-ghost" type="button" data-review-action="suspend">Suspend</button></div>
+        <div class="review-card__rule"><span class="eyebrow">Rule</span><h2>${escapeHTML(rule.ruleText)}</h2></div>
+        ${rule.notes ? `<div class="review-card__notes"><span>Note</span><p>${escapeHTML(rule.notes)}</p></div>` : ""}
+        <p class="review-card__prompt">How well did you recall and apply this rule?</p>
         <div class="review-responses">
-          ${["still_weak", "partly_reliable", "reliable_today", "mastered", "skip"].map((response) => `<button class="button ${response === "reliable_today" ? "button--primary" : "button--ghost"}" type="button" data-review-response="${response}">${labelResponse(response)}</button>`).join("")}
+          ${["again", "hard", "good", "easy"].map((response) => `<button class="review-response review-response--${response}" type="button" data-review-response="${response}"><strong>${labelResponse(response)}</strong><span>${intervals[response]} day${intervals[response] === 1 ? "" : "s"}</span></button>`).join("")}
         </div>
       </article>
     `;
   }
 
   async function loadReview() {
-    state.review = await app.apiRequest("/api/rules/review?limit=10");
+    const [review, settings] = await Promise.all([app.apiRequest("/api/rules/review?limit=30"), app.apiRequest("/api/settings")]);
+    state.review = review;
+    state.reviewIntervals = settings.reviewIntervals || state.reviewIntervals;
+    for (const [response, days] of Object.entries(state.reviewIntervals)) {
+      const input = document.querySelector(`#reviewIntervalForm [name="${response}"]`);
+      if (input) input.value = days;
+    }
     document.getElementById("reviewDueBadge").textContent = `${state.review.due} due`;
+    document.getElementById("viewSuspendedRulesBtn").textContent = `Suspended rules (${state.review.suspended || 0})`;
+    document.getElementById("reviewProgress").textContent = state.review.rules.length
+      ? `${state.reviewedThisSession} reviewed this session · ${state.review.due} waiting`
+      : state.reviewedThisSession ? `${state.reviewedThisSession} reviewed this session · queue complete` : "Nothing waiting today";
     document.getElementById("reviewRulesList").innerHTML = state.review.rules.length
-      ? state.review.rules.map(reviewCard).join("")
-      : '<section class="panel v3-panel frequency-empty">No rules are due today.</section>';
+      ? reviewCard(state.review.rules[0])
+      : '<section class="panel review-complete"><span class="review-complete__mark">✓</span><h2>You are done for today</h2><p class="muted">New and reviewed rules will return on the dates set by your four intervals.</p></section>';
   }
 
   async function submitReview(ruleId, response) {
-    const rule = await app.apiRequest(`/api/rules/${encodeURIComponent(ruleId)}/reviews`, { method: "POST", body: JSON.stringify({ response }) });
-    app.showToast(`${labelResponse(response)} · next review ${rule.nextReviewAt}.`);
+    const list = document.getElementById("reviewRulesList");
+    list.setAttribute("aria-busy", "true");
+    list.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    try {
+      const rule = await app.apiRequest(`/api/rules/${encodeURIComponent(ruleId)}/reviews`, { method: "POST", body: JSON.stringify({ response }) });
+      state.reviewedThisSession += 1;
+      app.showToast(`${labelResponse(response)} · next review ${rule.nextReviewAt}.`);
+      await loadReview();
+    } finally {
+      list.removeAttribute("aria-busy");
+      list.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+    }
+  }
+
+  async function suspendReview(ruleId) {
+    const rule = state.review?.rules?.find((item) => item.id === ruleId);
+    if (!rule) return;
+    const list = document.getElementById("reviewRulesList");
+    list.setAttribute("aria-busy", "true");
+    list.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    try {
+      await app.apiRequest(`/api/rules/${encodeURIComponent(ruleId)}`, { method: "PUT", body: JSON.stringify({ status: "archived" }) });
+      app.showToast("Rule suspended. You can resume it from the Rule Library.");
+      await loadReview();
+    } finally {
+      list.removeAttribute("aria-busy");
+      list.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+    }
+  }
+
+  async function saveReviewIntervals(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const reviewIntervals = Object.fromEntries(["again", "hard", "good", "easy"].map((response) => [response, Number(form.elements[response].value)]));
+    const settings = await app.apiRequest("/api/settings", { method: "PUT", body: JSON.stringify({ reviewIntervals }) });
+    state.reviewIntervals = settings.reviewIntervals;
+    app.showToast("Review intervals saved.");
     await loadReview();
   }
 
@@ -363,13 +457,14 @@
     const button = event.target.closest("[data-area]");
     if (button) show(button.dataset.area);
   });
-  document.getElementById("personalRulesList").addEventListener("click", async (event) => {
+  async function handleRuleListClick(event) {
     const button = event.target.closest("[data-rule-action]");
     const card = event.target.closest("[data-rule-id]");
     if (!button || !card) return;
     try {
       if (button.dataset.ruleAction === "save") await updateRule(card);
-      if (button.dataset.ruleAction === "archive") await updateRule(card, "archived");
+      if (button.dataset.ruleAction === "suspend") await updateRule(card, "archived");
+      if (button.dataset.ruleAction === "resume") await updateRule(card, "active");
       if (button.dataset.ruleAction === "delete") await deleteRule(card);
       if (button.dataset.ruleAction === "merge") await mergeRule(card, button.dataset.sourceRuleId);
       if (button.dataset.ruleAction === "source") {
@@ -377,16 +472,36 @@
         await app.openFormQuestion(rule.sourceFormId, rule.sourceQuestionNumber);
       }
     } catch (error) { app.showToast(error.message); }
-  });
+  }
+  document.getElementById("personalRulesList").addEventListener("click", handleRuleListClick);
+  document.getElementById("suspendedRulesList").addEventListener("click", handleRuleListClick);
   document.getElementById("ruleCandidatesList").addEventListener("click", (event) => {
     const button = event.target.closest("[data-candidate-action='add']");
     const card = event.target.closest("[data-candidate-index]");
-    if (button && card) addCandidate(Number(card.dataset.candidateIndex)).catch((error) => app.showToast(error.message));
+    if (button && card) addCandidates([Number(card.dataset.candidateIndex)]).catch((error) => app.showToast(error.message));
   });
+  document.getElementById("ruleCandidatesList").addEventListener("change", (event) => {
+    if (event.target.matches("[data-candidate-select]")) updateCandidateSelection();
+  });
+  document.getElementById("selectAllCandidates").addEventListener("change", (event) => {
+    document.querySelectorAll("#ruleCandidatesList [data-candidate-select]").forEach((checkbox) => { checkbox.checked = event.target.checked; });
+    updateCandidateSelection();
+  });
+  document.getElementById("addSelectedCandidatesBtn").addEventListener("click", () => addCandidates(selectedCandidateIndices()).catch((error) => app.showToast(error.message)));
+  document.getElementById("addAllCandidatesBtn").addEventListener("click", () => addCandidates(state.candidates.map((_, index) => index)).catch((error) => app.showToast(error.message)));
   document.getElementById("reviewRulesList").addEventListener("click", (event) => {
-    const button = event.target.closest("[data-review-response]");
+    const responseButton = event.target.closest("[data-review-response]");
+    const suspendButton = event.target.closest("[data-review-action='suspend']");
     const card = event.target.closest("[data-rule-id]");
-    if (button && card) submitReview(card.dataset.ruleId, button.dataset.reviewResponse).catch((error) => app.showToast(error.message));
+    if (responseButton && card) submitReview(card.dataset.ruleId, responseButton.dataset.reviewResponse).catch((error) => app.showToast(error.message));
+    if (suspendButton && card) suspendReview(card.dataset.ruleId).catch((error) => app.showToast(error.message));
+  });
+  document.getElementById("reviewIntervalForm").addEventListener("submit", (event) => saveReviewIntervals(event).catch((error) => app.showToast(error.message)));
+  document.getElementById("viewSuspendedRulesBtn").addEventListener("click", async () => {
+    await show("library");
+    const panel = document.getElementById("suspendedRulesPanel");
+    panel.open = true;
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
   });
   document.getElementById("applyAnalysisFilters").addEventListener("click", () => loadAnalysis().catch((error) => app.showToast(error.message)));
   document.getElementById("clearAnalysisFilters").addEventListener("click", () => {

@@ -23,6 +23,7 @@
   const MAX_FORM_LENGTH = 1000;
   const MAX_ENTRY_NUMBER = 2147483647;
   const ZOOM_LEVELS = new Set([80, 85, 90, 95, 100, 105, 110, 115, 120]);
+  const DEFAULT_REVIEW_INTERVALS = Object.freeze({ again: 1, hard: 3, good: 7, easy: 30 });
   const ERROR_CODES = new Set(["1", "2", "3", "4", "5", "6", "7"]);
   const { PATTERNS, SPEED_FLAGS, PATTERN_VALUES, SPEED_VALUES, canonicalPattern, canonicalSpeedFlags } = window.ThunderShadowReasoning;
   const { calculateAnalytics, findRuleDuplicates, nextReviewSchedule, normalizedRuleText } = window.ThunderShadowAnalytics;
@@ -286,6 +287,18 @@
   }
   async function setSetting(key, value) { await put(STORES.settings, { key, value, updatedAt: nowISO() }); return value; }
 
+  function normalizeReviewIntervals(input, strict = false) {
+    const source = input && typeof input === "object" ? input : {};
+    const output = {};
+    for (const [key, fallback] of Object.entries(DEFAULT_REVIEW_INTERVALS)) {
+      const value = Number(source[key]);
+      if (Number.isInteger(value) && value >= 1 && value <= 3650) output[key] = value;
+      else if (strict) throw new Error(`${key[0].toUpperCase()}${key.slice(1)} must be 1–3650 days.`);
+      else output[key] = fallback;
+    }
+    return output;
+  }
+
   function blankEntry(number) {
     return { number, entryNumber: number, originalQuestionNumber: null, errorCode: "", pattern: "", speedFlags: [], reasoningNote: "", manualRule: "", deleted: false, createdAt: null, updatedAt: null, revision: 0 };
   }
@@ -505,8 +518,10 @@
     const forms = await allForms();
     const rules = await allHydratedRules();
     const uiScaleRecord = includeBrowserSettings ? await get(STORES.settings, "ui_scale").catch(() => null) : null;
-    const settings = includeBrowserSettings ? { uiScale: Number(uiScaleRecord?.value ?? 100) || 100 } : {};
-    return { app: "ThunderShadow", version: BACKUP_VERSION, storage: emergencyStorage ? "browser-localstorage-emergency" : "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION, forms, rules, settings, settingsUpdatedAt: uiScaleRecord?.updatedAt || "", tombstones: await tombstones() };
+    const reviewIntervalsRecord = includeBrowserSettings ? await get(STORES.settings, "review_intervals").catch(() => null) : null;
+    const settings = includeBrowserSettings ? { uiScale: Number(uiScaleRecord?.value ?? 100) || 100, reviewIntervals: normalizeReviewIntervals(reviewIntervalsRecord?.value) } : {};
+    const settingsUpdatedAt = [uiScaleRecord?.updatedAt || "", reviewIntervalsRecord?.updatedAt || ""].sort().at(-1) || "";
+    return { app: "ThunderShadow", version: BACKUP_VERSION, storage: emergencyStorage ? "browser-localstorage-emergency" : "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION, forms, rules, settings, settingsUpdatedAt, tombstones: await tombstones() };
   }
 
   function previewPackage(payload) {
@@ -539,6 +554,9 @@
     for (const rule of rules) await put(STORES.rules, rule);
     if (payload.settings?.uiScale && ZOOM_LEVELS.has(Number(payload.settings.uiScale))) {
       await put(STORES.settings, { key: "ui_scale", value: Number(payload.settings.uiScale), updatedAt: payload.settingsUpdatedAt || nowISO() });
+    }
+    if (payload.settings?.reviewIntervals && typeof payload.settings.reviewIntervals === "object") {
+      await put(STORES.settings, { key: "review_intervals", value: normalizeReviewIntervals(payload.settings.reviewIntervals), updatedAt: payload.settingsUpdatedAt || nowISO() });
     }
     await setMeta("tombstones", { forms: { ...(payload.tombstones?.forms || {}) }, rules: { ...(payload.tombstones?.rules || {}) }, entries: { ...(payload.tombstones?.entries || {}) } });
     if (!preserveBackups) await clear(STORES.backups);
@@ -659,6 +677,15 @@
         const localSettingsUpdatedAt = String(stored?.updatedAt || "");
         return remoteSettingsUpdatedAt > localSettingsUpdatedAt
           ? { key: "ui_scale", value: remoteUiScale, updatedAt: remoteSettingsUpdatedAt }
+          : stored;
+      });
+    }
+    if (remoteSettingsUpdatedAt && remotePayload.settings?.reviewIntervals && typeof remotePayload.settings.reviewIntervals === "object") {
+      const remoteReviewIntervals = normalizeReviewIntervals(remotePayload.settings.reviewIntervals);
+      await updateRecordAtomically(STORES.settings, "review_intervals", (stored) => {
+        const localSettingsUpdatedAt = String(stored?.updatedAt || "");
+        return remoteSettingsUpdatedAt > localSettingsUpdatedAt
+          ? { key: "review_intervals", value: remoteReviewIntervals, updatedAt: remoteSettingsUpdatedAt }
           : stored;
       });
     }
@@ -935,7 +962,7 @@
         return jsonResponse({ rules: output, candidates: await ruleCandidates() });
       }
       if (pathname.endsWith("/api/rules/review") && method === "GET") {
-        const limit = Math.max(1, Math.min(30, Number(url.searchParams.get("limit")) || 10)), today = nowISO().slice(0, 10); const due = (await allHydratedRules()).filter((rule) => rule.status !== "archived" && (!rule.nextReviewAt || rule.nextReviewAt <= today)).sort((a, b) => { const score = { active: 4, new: 3, improving: 2, mastered: 1 }; return (score[b.status] || 0) - (score[a.status] || 0) || b.occurrenceCount - a.occurrenceCount || b.lastSeen.localeCompare(a.lastSeen) || String(a.nextReviewAt || "").localeCompare(String(b.nextReviewAt || "")); }).slice(0, limit); return jsonResponse({ date: today, due: due.length, rules: due });
+        const limit = Math.max(1, Math.min(30, Number(url.searchParams.get("limit")) || 10)), today = nowISO().slice(0, 10); const allRules = await allHydratedRules(); const due = allRules.filter((rule) => rule.status !== "archived" && (!rule.nextReviewAt || rule.nextReviewAt <= today)).sort((a, b) => String(a.nextReviewAt || "").localeCompare(String(b.nextReviewAt || "")) || b.occurrenceCount - a.occurrenceCount || b.lastSeen.localeCompare(a.lastSeen)); return jsonResponse({ date: today, due: due.length, suspended: allRules.filter((rule) => rule.status === "archived").length, rules: due.slice(0, limit) });
       }
       if (pathname.endsWith("/api/rules") && method === "POST") {
         const body = await parseBody(options); let source = null; if (body.sourceFormId && body.sourceQuestionNumber) { const form = await get(STORES.forms, body.sourceFormId); source = form?.entries?.find((entry) => entry.entryNumber === Number(body.sourceQuestionNumber)); }
@@ -959,7 +986,7 @@
       }
       m = match(pathname, /\/api\/rules\/([^/]+)\/reviews$/);
       if (m && method === "POST") {
-        const rule = await get(STORES.rules, m[0]); if (!rule) return errorResponse(new Error("Rule not found."), 404, "NOT_FOUND"); const body = await parseBody(options), reviewedAt = nowISO(); const schedule = nextReviewSchedule(body.response, Number(rule.successfulReviews || 0), new Date(reviewedAt)); const status = schedule.status || (["partly_reliable", "reliable_today"].includes(body.response) ? "improving" : rule.status); const review = { id: uuid(), response: body.response, reviewedAt, intervalDays: schedule.intervalDays, nextReviewAt: schedule.nextReviewAt }; rule.reviewHistory = [review, ...(rule.reviewHistory || [])]; rule.status = status; rule.nextReviewAt = schedule.nextReviewAt; rule.successfulReviews = schedule.successfulReviews; rule.updatedAt = reviewedAt; await put(STORES.rules, rule); notifyMutation("rule.reviewed", { ruleId: rule.id }); return jsonResponse(await hydrateRule(rule));
+        const rule = await get(STORES.rules, m[0]); if (!rule) return errorResponse(new Error("Rule not found."), 404, "NOT_FOUND"); const body = await parseBody(options), reviewedAt = nowISO(); const intervals = normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)); const schedule = nextReviewSchedule(body.response, Number(rule.successfulReviews || 0), new Date(reviewedAt), intervals); const status = schedule.status || (["hard", "good", "partly_reliable", "reliable_today"].includes(body.response) ? "improving" : rule.status); const review = { id: uuid(), response: body.response, reviewedAt, intervalDays: schedule.intervalDays, nextReviewAt: schedule.nextReviewAt }; rule.reviewHistory = [review, ...(rule.reviewHistory || [])]; rule.status = status; rule.nextReviewAt = schedule.nextReviewAt; rule.successfulReviews = schedule.successfulReviews; rule.updatedAt = reviewedAt; await put(STORES.rules, rule); notifyMutation("rule.reviewed", { ruleId: rule.id }); return jsonResponse(await hydrateRule(rule));
       }
 
       if (pathname.endsWith("/api/export/all-forms.tsv") && method === "GET") return textResponse(allFormsToTsv(await allForms()), "text/tab-separated-values; charset=utf-8", "ThunderShadow_Longitudinal_Log.tsv");
@@ -970,9 +997,16 @@
       if (pathname.endsWith("/api/settings") && method === "GET") {
         let storageRecovery = null;
         try { storageRecovery = JSON.parse(localStorage.getItem(STORAGE_RECOVERY_KEY) || "null"); } catch {}
-        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, backup: emergencyStorage ? { directory: "Disabled while IndexedDB is unavailable", retention: 0, intervalHours: 0 } : { directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS }, schemaVersion: SCHEMA_VERSION, storage: { mode: emergencyStorage ? "localStorage-emergency" : "indexedDB", database: emergencyStorage ? null : activeDbName, recovery: storageRecovery } });
+        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, reviewIntervals: normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)), backup: emergencyStorage ? { directory: "Disabled while IndexedDB is unavailable", retention: 0, intervalHours: 0 } : { directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS }, schemaVersion: SCHEMA_VERSION, storage: { mode: emergencyStorage ? "localStorage-emergency" : "indexedDB", database: emergencyStorage ? null : activeDbName, recovery: storageRecovery } });
       }
-      if (pathname.endsWith("/api/settings") && method === "PUT") { const body = await parseBody(options); const uiScale = Number(body.uiScale); if (!ZOOM_LEVELS.has(uiScale)) return errorResponse(new Error("UI scale must be 80–120 in 5% steps."), 400); const previous = Number(await getSetting("ui_scale", 100)) || 100; if (previous !== uiScale) { await setSetting("ui_scale", uiScale); notifyMutation("settings.updated", { setting: "uiScale" }); } return jsonResponse({ uiScale }); }
+      if (pathname.endsWith("/api/settings") && method === "PUT") {
+        const body = await parseBody(options); let changed = false;
+        if (body.uiScale != null) { const uiScale = Number(body.uiScale); if (!ZOOM_LEVELS.has(uiScale)) return errorResponse(new Error("UI scale must be 80–120 in 5% steps."), 400); const previous = Number(await getSetting("ui_scale", 100)) || 100; if (previous !== uiScale) { await setSetting("ui_scale", uiScale); changed = true; } }
+        if (body.reviewIntervals != null) { const reviewIntervals = normalizeReviewIntervals(body.reviewIntervals, true); const previous = normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)); if (JSON.stringify(previous) !== JSON.stringify(reviewIntervals)) { await setSetting("review_intervals", reviewIntervals); changed = true; } }
+        if (body.uiScale == null && body.reviewIntervals == null) return errorResponse(new Error("No recognized setting was provided."), 400);
+        if (changed) notifyMutation("settings.updated", { setting: body.reviewIntervals != null ? "reviewIntervals" : "uiScale" });
+        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, reviewIntervals: normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)) });
+      }
 
       return errorResponse(new Error("Browser API endpoint not found."), 404, "NOT_FOUND");
     } catch (error) {

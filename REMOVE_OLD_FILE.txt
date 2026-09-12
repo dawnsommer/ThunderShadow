@@ -1,7 +1,0 @@
-Legacy Firebase files intentionally removed in v11.0.0-cloudflare-drive:
-
-- js/firebase-sync.js
-- FIREBASE_SETUP.md
-- firestore.rules
-
-If upgrading an existing GitHub repository in-place, delete those files so stale service-worker/browser caches cannot reference them.

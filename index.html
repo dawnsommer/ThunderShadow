@@ -11,12 +11,12 @@
   <meta name="application-name" content="ThunderShadow">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=23"></script>
-  <script src="js/uuid.js?v=23"></script>
+  <script src="js/theme-init.js?v=26"></script>
+  <script src="js/uuid.js?v=26"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=23">
+  <link rel="stylesheet" href="css/styles.css?v=26">
 </head>
 <body>
   <div class="storm" aria-hidden="true">
@@ -325,16 +325,29 @@
       <section id="ruleLibraryView" class="view v3-view" aria-label="Personal rule library" hidden>
         <div class="v3-scroll">
           <div class="v3-heading">
-            <div><p class="eyebrow">Personal rule library</p><h1>Rules worth retaining</h1><p>Exact wording stays separate unless you confirm a merge.</p></div>
+            <div><p class="eyebrow">Personal rule library</p><h1>Build your review deck</h1><p>Bring rules in from your logs, then expand a saved rule only when you need to edit it.</p></div>
             <div class="v3-heading__actions"><button id="exportRulesBtn" class="button button--ghost" type="button">Active-rules TSV</button></div>
           </div>
           <section class="panel v3-panel">
-            <div class="panel__heading panel__heading--compact"><div><h2>Saved rules</h2><p class="muted">Edit wording, status, notes, or open the source entry.</p></div><span id="ruleCountBadge" class="badge">0 rules</span></div>
-            <div id="personalRulesList" class="v3-list"></div>
-          </section>
-          <section class="panel v3-panel">
-            <div class="panel__heading panel__heading--compact"><div><h2>Rules found in logs</h2><p class="muted">Add useful Reasoning Notes without changing the logging path.</p></div></div>
+            <div class="panel__heading panel__heading--compact"><div><h2>Rules found in logs</h2><p class="muted">Select the Reasoning Notes you want, or add every rule that is not already saved.</p></div><span id="candidateCountBadge" class="badge">0 found</span></div>
+            <div id="candidateBulkActions" class="candidate-bulk-actions" hidden>
+              <label class="candidate-select-all"><input id="selectAllCandidates" type="checkbox"><span>Select all</span></label>
+              <span id="candidateSelectionCount" class="muted">0 selected</span>
+              <div class="candidate-bulk-actions__buttons">
+                <button id="addSelectedCandidatesBtn" class="button button--ghost" type="button" disabled>Add selected</button>
+                <button id="addAllCandidatesBtn" class="button button--primary" type="button">Add all</button>
+              </div>
+            </div>
             <div id="ruleCandidatesList" class="v3-list v3-list--compact"></div>
+          </section>
+          <section class="panel v3-panel saved-rules-panel">
+            <div class="panel__heading panel__heading--compact"><div><h2>Saved rules</h2><p class="muted">Compact rows stay out of the way. Expand one to edit, open its source, or suspend it.</p></div><span id="ruleCountBadge" class="badge">0 active</span></div>
+            <div id="personalRulesList" class="v3-list v3-list--compact"></div>
+            <details id="suspendedRulesPanel" class="suspended-rules-panel">
+              <summary><span>Suspended rules</span><span id="suspendedCountBadge" class="badge">0 suspended</span></summary>
+              <p class="muted">Suspended rules stay in your library and backups, but are removed from daily review.</p>
+              <div id="suspendedRulesList" class="v3-list v3-list--compact"></div>
+            </details>
           </section>
         </div>
       </section>
@@ -364,8 +377,22 @@
       </section>
 
       <section id="reviewView" class="view v3-view" aria-label="Active rules review" hidden>
-        <div class="v3-scroll">
-          <div class="v3-heading"><div><p class="eyebrow">Active Rules</p><h1>Daily rule review</h1><p>A short due set ordered by active status, recurrence, and review date.</p></div><span id="reviewDueBadge" class="badge">0 due</span></div>
+        <div class="v3-scroll v3-scroll--review">
+          <div class="v3-heading">
+            <div><p class="eyebrow">Active Rules</p><h1>Daily review</h1><p>Rate one rule at a time. Your four intervals are the whole scheduling system.</p></div>
+            <div class="v3-heading__actions"><span id="reviewDueBadge" class="badge">0 due</span><button id="viewSuspendedRulesBtn" class="button button--ghost" type="button">Suspended rules</button></div>
+          </div>
+          <form id="reviewIntervalForm" class="panel review-intervals" aria-label="Review intervals">
+            <div class="review-intervals__intro"><h2>Your intervals</h2><p class="muted">Choose how many days each answer waits before the rule returns.</p></div>
+            <div class="review-interval-grid">
+              <label class="review-interval review-interval--again"><span>Again</span><span><input id="reviewAgainDays" name="again" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+              <label class="review-interval review-interval--hard"><span>Hard</span><span><input id="reviewHardDays" name="hard" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+              <label class="review-interval review-interval--good"><span>Good</span><span><input id="reviewGoodDays" name="good" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+              <label class="review-interval review-interval--easy"><span>Easy</span><span><input id="reviewEasyDays" name="easy" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+            </div>
+            <button id="saveReviewIntervalsBtn" class="button button--subtle" type="submit">Save intervals</button>
+          </form>
+          <div id="reviewProgress" class="review-progress" aria-live="polite"></div>
           <div id="reviewRulesList" class="review-list"></div>
         </div>
       </section>
@@ -626,13 +653,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=23" defer></script>
-  <script src="js/reasoning.js?v=23" defer></script>
-  <script src="js/analytics.js?v=23" defer></script>
-  <script src="js/browser-api.js?v=23" defer></script>
-  <script src="js/sync.js?v=23" defer></script>
-  <script src="js/app.js?v=23" defer></script>
-  <script src="js/v3.js?v=23" defer></script>
-  <script src="js/cloud-sync.js?v=23" defer></script>
+  <script src="js/config.js?v=26" defer></script>
+  <script src="js/reasoning.js?v=26" defer></script>
+  <script src="js/analytics.js?v=26" defer></script>
+  <script src="js/browser-api.js?v=26" defer></script>
+  <script src="js/sync.js?v=26" defer></script>
+  <script src="js/app.js?v=26" defer></script>
+  <script src="js/v3.js?v=26" defer></script>
+  <script src="js/cloud-sync.js?v=26" defer></script>
 </body>
 </html>
