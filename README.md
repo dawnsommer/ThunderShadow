@@ -6,7 +6,7 @@ ThunderShadow is a static, installable, local-first PWA for rapid NBME/CMS error
 
 The Rule Library detects unique Reasoning Notes across the logs. You can add all unsaved rules at once, select a subset, or add one individually. Saved rules use compact expandable rows; suspending a rule moves it into a separate suspended section without deleting it from local storage, backups, or Google Drive.
 
-Active Rules is a one-card-at-a-time spaced-review queue. Again, Hard, Good, and Easy each use a user-chosen interval in days (defaults: 1, 3, 7, and 30). There is no hidden scheduling formula: the selected answer adds its configured interval to the review date. These four intervals sync with the rest of the app settings.
+Active Rules is a one-card-at-a-time spaced-review queue that preserves the line breaks authored in rule and note text. Again, Hard, Good, and Easy each use a user-chosen interval in days (defaults: 1, 3, 7, and 30). There is no hidden scheduling formula: the selected answer adds its configured interval to the review date. Configure the four synced intervals on the main Settings page.
 
 ## Storage model
 

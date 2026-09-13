@@ -11,12 +11,12 @@
   <meta name="application-name" content="ThunderShadow">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=26"></script>
-  <script src="js/uuid.js?v=26"></script>
+  <script src="js/theme-init.js?v=27"></script>
+  <script src="js/uuid.js?v=27"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=26">
+  <link rel="stylesheet" href="css/styles.css?v=27">
 </head>
 <body>
   <div class="storm" aria-hidden="true">
@@ -61,7 +61,13 @@
 
       <div class="topbar__tools">
         <label class="theme-control" aria-label="Color theme"><select id="themeModeSelect"><option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option></select></label>
-        <button id="uiModeToggleBtn" class="mode-toggle" type="button" aria-pressed="false" title="Use larger tablet-style controls"><span aria-hidden="true">◫</span><span id="uiModeToggleText">Touch UI</span></button>
+        <button id="uiModeToggleBtn" class="mode-toggle" type="button" aria-pressed="false" aria-label="Switch to Touch UI" title="Switch to Touch UI">
+          <span class="mode-toggle__icon" aria-hidden="true">
+            <svg data-mode-icon="touch" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2"/><path d="M10 18.2h4"/></svg>
+            <svg data-mode-icon="desktop" viewBox="0 0 24 24"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 20.5h8M12 16.5v4"/></svg>
+          </span>
+          <span id="uiModeToggleText">Touch UI</span>
+        </button>
         <button id="syncStatusBtn" class="sync-status" type="button" data-state="local" data-short-label="Local" aria-label="Synchronization status. Click to sync now" title="Click to sync now">
           <i></i><span id="syncStatusText">Saved locally</span>
         </button>
@@ -379,19 +385,9 @@
       <section id="reviewView" class="view v3-view" aria-label="Active rules review" hidden>
         <div class="v3-scroll v3-scroll--review">
           <div class="v3-heading">
-            <div><p class="eyebrow">Active Rules</p><h1>Daily review</h1><p>Rate one rule at a time. Your four intervals are the whole scheduling system.</p></div>
+            <div><p class="eyebrow">Active Rules</p><h1>Daily review</h1><p>Rate one rule at a time using the intervals saved in Settings.</p></div>
             <div class="v3-heading__actions"><span id="reviewDueBadge" class="badge">0 due</span><button id="viewSuspendedRulesBtn" class="button button--ghost" type="button">Suspended rules</button></div>
           </div>
-          <form id="reviewIntervalForm" class="panel review-intervals" aria-label="Review intervals">
-            <div class="review-intervals__intro"><h2>Your intervals</h2><p class="muted">Choose how many days each answer waits before the rule returns.</p></div>
-            <div class="review-interval-grid">
-              <label class="review-interval review-interval--again"><span>Again</span><span><input id="reviewAgainDays" name="again" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
-              <label class="review-interval review-interval--hard"><span>Hard</span><span><input id="reviewHardDays" name="hard" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
-              <label class="review-interval review-interval--good"><span>Good</span><span><input id="reviewGoodDays" name="good" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
-              <label class="review-interval review-interval--easy"><span>Easy</span><span><input id="reviewEasyDays" name="easy" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
-            </div>
-            <button id="saveReviewIntervalsBtn" class="button button--subtle" type="submit">Save intervals</button>
-          </form>
           <div id="reviewProgress" class="review-progress" aria-live="polite"></div>
           <div id="reviewRulesList" class="review-list"></div>
         </div>
@@ -422,6 +418,16 @@
               <button type="button" data-rain-choice="off">Off</button>
             </div>
           </section>
+          <form id="reviewIntervalForm" class="panel v3-panel review-intervals review-intervals--settings" aria-label="Review intervals">
+            <div class="review-intervals__intro"><h2>Review intervals</h2><p class="muted">Choose how many days each Active Rules answer waits before the rule returns.</p></div>
+            <div class="review-interval-grid">
+              <label class="review-interval review-interval--again"><span>Again</span><span><input id="reviewAgainDays" name="again" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+              <label class="review-interval review-interval--hard"><span>Hard</span><span><input id="reviewHardDays" name="hard" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+              <label class="review-interval review-interval--good"><span>Good</span><span><input id="reviewGoodDays" name="good" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+              <label class="review-interval review-interval--easy"><span>Easy</span><span><input id="reviewEasyDays" name="easy" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+            </div>
+            <button id="saveReviewIntervalsBtn" class="button button--subtle" type="submit">Save intervals</button>
+          </form>
           <section class="panel v3-panel touch-section-preferences">
             <div class="touch-section-preferences__intro"><h2>Phone logger sections</h2><p class="muted">Set whether optional logger sections are expanded or collapsed on phone. These persistent layout controls live here in Settings so the logging surface stays task-focused.</p></div>
             <div class="touch-section-preference-row">
@@ -653,13 +659,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=26" defer></script>
-  <script src="js/reasoning.js?v=26" defer></script>
-  <script src="js/analytics.js?v=26" defer></script>
-  <script src="js/browser-api.js?v=26" defer></script>
-  <script src="js/sync.js?v=26" defer></script>
-  <script src="js/app.js?v=26" defer></script>
-  <script src="js/v3.js?v=26" defer></script>
-  <script src="js/cloud-sync.js?v=26" defer></script>
+  <script src="js/config.js?v=27" defer></script>
+  <script src="js/reasoning.js?v=27" defer></script>
+  <script src="js/analytics.js?v=27" defer></script>
+  <script src="js/browser-api.js?v=27" defer></script>
+  <script src="js/sync.js?v=27" defer></script>
+  <script src="js/app.js?v=27" defer></script>
+  <script src="js/v3.js?v=27" defer></script>
+  <script src="js/cloud-sync.js?v=27" defer></script>
 </body>
 </html>

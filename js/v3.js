@@ -35,7 +35,7 @@
       if (area === "library") await loadLibrary();
       if (area === "analysis") await loadAnalysis();
       if (area === "review") await loadReview();
-      if (area === "settings") { await Promise.all([loadBackups(), app.refreshAccess()]); }
+      if (area === "settings") { await Promise.all([loadBackups(), loadReviewIntervals(), app.refreshAccess()]); }
     } catch (error) {
       console.error(error);
       app.showToast(error.message || "This area could not be loaded.");
@@ -283,14 +283,22 @@
     `;
   }
 
-  async function loadReview() {
-    const [review, settings] = await Promise.all([app.apiRequest("/api/rules/review?limit=30"), app.apiRequest("/api/settings")]);
-    state.review = review;
+  function applyReviewIntervals(settings) {
     state.reviewIntervals = settings.reviewIntervals || state.reviewIntervals;
     for (const [response, days] of Object.entries(state.reviewIntervals)) {
       const input = document.querySelector(`#reviewIntervalForm [name="${response}"]`);
       if (input) input.value = days;
     }
+  }
+
+  async function loadReviewIntervals() {
+    applyReviewIntervals(await app.apiRequest("/api/settings"));
+  }
+
+  async function loadReview() {
+    const [review, settings] = await Promise.all([app.apiRequest("/api/rules/review?limit=30"), app.apiRequest("/api/settings")]);
+    state.review = review;
+    applyReviewIntervals(settings);
     document.getElementById("reviewDueBadge").textContent = `${state.review.due} due`;
     document.getElementById("viewSuspendedRulesBtn").textContent = `Suspended rules (${state.review.suspended || 0})`;
     document.getElementById("reviewProgress").textContent = state.review.rules.length
@@ -337,9 +345,8 @@
     const form = event.currentTarget;
     const reviewIntervals = Object.fromEntries(["again", "hard", "good", "easy"].map((response) => [response, Number(form.elements[response].value)]));
     const settings = await app.apiRequest("/api/settings", { method: "PUT", body: JSON.stringify({ reviewIntervals }) });
-    state.reviewIntervals = settings.reviewIntervals;
+    applyReviewIntervals(settings);
     app.showToast("Review intervals saved.");
-    await loadReview();
   }
 
   function download(path, fallback) {

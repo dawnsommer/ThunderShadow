@@ -149,8 +149,12 @@
     state.uiMode = mode === "touch" ? "touch" : "desktop";
     document.documentElement.dataset.uiMode = state.uiMode;
     localStorage.setItem("thundershadow:ui-mode", state.uiMode);
-    $("uiModeToggleBtn").setAttribute("aria-pressed", String(state.uiMode === "touch"));
-    $("uiModeToggleText").textContent = state.uiMode === "touch" ? "Desktop UI" : "Touch UI";
+    const modeToggle = $("uiModeToggleBtn");
+    const targetLabel = state.uiMode === "touch" ? "Desktop UI" : "Touch UI";
+    modeToggle.setAttribute("aria-pressed", String(state.uiMode === "touch"));
+    modeToggle.setAttribute("aria-label", `Switch to ${targetLabel}`);
+    modeToggle.title = `Switch to ${targetLabel}`;
+    $("uiModeToggleText").textContent = targetLabel;
     document.querySelectorAll("[data-ui-mode]").forEach((button) => button.classList.toggle("is-active", button.dataset.uiMode === state.uiMode));
     if (state.uiMode !== "touch") setEntryRailExpanded(false);
     syncTouchLayout();
@@ -306,7 +310,7 @@
   function renderLibrary() {
     const query = state.search.toLowerCase(); const forms = state.forms.filter((form) => !query || `${form.name} ${form.examType} ${form.subject}`.toLowerCase().includes(query));
     el.emptyLibrary.hidden = state.forms.length > 0;
-    el.formsGrid.innerHTML = forms.map((form) => { const c = counts(form); return `<article class="form-card" data-form-id="${escapeHTML(form.id)}"><div class="form-card__top"><div><span class="badge">${escapeHTML(form.examType || form.subject || "Form")}</span><h2>${escapeHTML(form.name)}</h2><p>${escapeHTML(form.date)} · ${form.originalFormLength ? `${form.originalFormLength} original questions · ` : ""}${c.logged} active entr${c.logged === 1 ? "y" : "ies"} · ${form.finished ? "Finished" : "Open"}</p></div></div><div class="form-card__actions"><button class="form-card__action form-card__action--open" data-action="open">Open</button><button class="form-card__action" data-action="export">TSV</button><button class="form-card__action" data-action="edit">Edit</button><button class="form-card__action form-card__action--delete" data-action="delete">Delete</button></div></article>`; }).join("");
+    el.formsGrid.innerHTML = forms.map((form) => { const c = counts(form); return `<article class="form-card" data-form-id="${escapeHTML(form.id)}"><div class="form-card__top"><div class="form-card__title"><span class="badge">${escapeHTML(form.examType || form.subject || "Form")}</span><h2>${escapeHTML(form.name)}</h2><p>${escapeHTML(form.date)} · ${form.originalFormLength ? `${form.originalFormLength} original questions · ` : ""}${c.logged} active entr${c.logged === 1 ? "y" : "ies"} · ${form.finished ? "Finished" : "Open"}</p></div></div><div class="form-card__actions"><button class="form-card__action form-card__action--open" data-action="open">Open</button><button class="form-card__action" data-action="export">TSV</button><button class="form-card__action" data-action="edit">Edit</button><button class="form-card__action form-card__action--delete" data-action="delete">Delete</button></div></article>`; }).join("");
     renderFrequencies();
   }
   function renderFrequencies() { const all = state.forms.flatMap((f) => f.entries).filter(isLogged); const render = (items, value, target) => { const values = items.map(([id, label], index) => [label, all.filter((e) => value(e, id)).length, index]); const max = Math.max(1, ...values.map(([, n]) => n)); $(target).innerHTML = values.map(([label, n, index]) => `<div class="frequency-item${target === "patternFrequencyList" ? ` pattern-analytics--${index + 1}` : ""}"><div class="frequency-item__body"><div class="frequency-item__label"><span>${escapeHTML(label)}</span></div><div class="frequency-item__bar"><i style="width:${n ? Math.max(5, n * 100 / max) : 0}%"></i></div></div><strong>${n}</strong></div>`).join(""); }; render(ERROR_CODES, (e, id) => e.errorCode === id, "errorFrequencyList"); render(RULE_PATTERNS, (e, id) => e.pattern === id, "patternFrequencyList"); render(SPEED_FLAGS, (e, id) => e.speedFlags.includes(id), "speedFrequencyList"); }

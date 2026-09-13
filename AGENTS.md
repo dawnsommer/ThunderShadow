@@ -1,10 +1,10 @@
 # ThunderShadow project handoff
 
-Last refreshed: 2026-09-12. Read this before changing the project. Source code and the current `git diff` override this summary if they disagree.
+Last refreshed: 2026-09-13. Read this before changing the project. Source code and the current `git diff` override this summary if they disagree.
 
 ## Snapshot
 
-- Current release: `19.1.0-rule-deck-review` (`VERSION`).
+- Current release: `19.2.0-ui-refinements` (`VERSION`).
 - Product: framework-free, static, installable NBME/CMS error-logging PWA deployed from the repository root on GitHub Pages.
 - Production URL/OAuth return URL: `https://dawnsommer.github.io/ThunderShadow/`.
 - No build step, Node server, package manager, Firebase, Firestore, SQLite, or backend API exists in this edition. The old server files are intentionally deleted.
@@ -31,7 +31,7 @@ Also confirm every `service-worker.js` shell asset exists, HTML IDs remain uniqu
 ## Runtime map
 
 - `index.html`: complete app shell, six primary views (form library, logger, rule library, analysis, active-rule review, settings), dialogs, and script load order.
-- `css/styles.css`: all theming/layout; later version blocks override earlier rules. It includes touch v12-v16, rain control v18, desktop optimization v18.6, and the v19.1 compact rule-deck/review surfaces. Preserve ordering when editing overrides.
+- `css/styles.css`: all theming/layout; later version blocks override earlier rules. It includes touch v12-v16, rain control v18, desktop optimization v18.6, the v19.1 compact rule-deck/review surfaces, and v19.2 review/library refinements. Preserve ordering when editing overrides.
 - `js/theme-init.js`: applies theme/UI/rain attributes before paint.
 - `js/uuid.js`: UUID helper with Web Crypto fallback.
 - `js/config.js`: public cloud coordinates only (app ID, Worker URL, return URL, Drive scope); never put secrets here.
@@ -66,7 +66,7 @@ Device-only `localStorage` preferences include theme, desktop/touch UI, rain on/
 
 Core browser-API families: forms and entries CRUD/restore/permanent delete/TSV; JSON backup and destructive restore; browser snapshots/list/preview/download/restore; encrypted `.tsbackup` export/import preview; analytics; rules/merge/review/suspend/delete; longitudinal TSV, active-rules TSV, analytics JSON, ChatGPT-analysis Markdown; settings. Restore is intentionally destructive after validation and creates a safety snapshot first. Portable archives use PBKDF2-SHA-256 (240,000 iterations) plus AES-256-GCM; passphrases are never stored.
 
-UI guarantees: desktop scale 80-120%; explicit Desktop/Touch modes; light/dark/system themes; device-local rain toggle; phone uses `visualViewport`, safe areas, one renderable primary view, an internal logger scroll surface, persistent optional-section preferences, and phone-native analysis tables. The rule library can import every unsaved Reasoning Note or a selected subset, displays saved rules as compact expandable rows, and separates suspended rules. Active Rules presents one due card at a time and schedules Again/Hard/Good/Easy directly from the user's four day intervals. Logger shortcuts: `1-7` error code, `Shift+0-7` pattern, `Alt/Option+0-6` speed flags, `[`/`]` navigation, `Cmd/Ctrl+Enter` save-next, and selected-code copy with `Cmd/Ctrl+C`.
+UI guarantees: desktop scale 80-120%; explicit Desktop/Touch modes; light/dark/system themes; device-local rain toggle; phone uses `visualViewport`, safe areas, one renderable primary view, an internal logger scroll surface, persistent optional-section preferences, and phone-native analysis tables. The form-library cards are compact, and the header display-mode control uses target-specific tablet/desktop icons. The rule library can import every unsaved Reasoning Note or a selected subset, displays saved rules as compact expandable rows, and separates suspended rules. Active Rules presents one due card at a time, preserves authored line breaks in rule and note text, and schedules Again/Hard/Good/Easy directly from the four intervals configured in Settings. Logger shortcuts: `1-7` error code, `Shift+0-7` pattern, `Alt/Option+0-6` speed flags, `[`/`]` navigation, `Cmd/Ctrl+Enter` save-next, and selected-code copy with `Cmd/Ctrl+C`.
 
 ## Cloud contract and invariants
 
@@ -87,7 +87,7 @@ Never weaken these invariants: local-first operation, non-destructive cloud merg
 
 Publish repository root from `main` with GitHub Pages. If the production path changes, update both Worker allow-list/configuration and `js/config.js`. On Firebase-to-Drive migration, first connect a browser whose IndexedDB is authoritative, seed Drive, then verify a second-browser restore before clearing the first browser.
 
-Current cache release is `thundershadow-github-shell-v26`; both the shell and `index.html` use code/style query key `?v=26`.
+Current cache release is `thundershadow-github-shell-v27`; both the shell and `index.html` use code/style query key `?v=27`.
 
 There is no automated integration suite after the server removal. The conflict dialog and `handleServerEvent` compatibility paths remain in the UI, while `js/sync.js` conflict/pending methods are no-ops; do not describe them as active multi-client conflict UI without implementing and testing that behavior.
 
