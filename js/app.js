@@ -374,10 +374,10 @@
     const pattern = RULE_PATTERNS.find(([id]) => id === entry.pattern);
     const tag = $("noteKindBtn");
     tag.dataset.noteKind = entry.noteKind;
-    tag.setAttribute("aria-pressed", String(reasoning));
-    tag.textContent = reasoning ? `Reasoning cue · ${pattern ? pattern[3] : "choose pattern"}` : "Clinical pearl";
-    tag.title = reasoning ? "Tagged as a reasoning cue. Click to change to a clinical pearl." : "Clinical knowledge note. Click to tag as a reasoning cue linked to the selected pattern.";
-    el.note.placeholder = reasoning ? (pattern ? pattern[5] : "Next time, what should you notice or do differently?") : "A finding, illness script, or clinical fact worth remembering…";
+    tag.setAttribute("aria-checked", String(reasoning));
+    tag.title = `${reasoning ? "Broad Pattern" : "Clinical Pattern"} selected. Switch between clinical cues and broader question-solving skills.`;
+    $("notePatternLabel").textContent = pattern ? `${pattern[3]} · ${pattern[1]}` : "No pattern";
+    el.note.placeholder = reasoning ? "Next time, what question-solving habit should you apply?" : (pattern ? pattern[5] : "Which clinical cues or reasoning pathway should you remember?");
     $("noteSourceLabel").textContent = `${state.currentForm.name} · Entry ${entry.entryNumber}`;
     $("noteSourceLabel").title = window.ThunderShadowReasoning.noteIdFor(state.currentForm.id, entry.entryNumber);
   }

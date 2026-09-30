@@ -4536,3 +4536,240 @@ html[data-ui-mode] #reviewView .review-card__notes p { font-size: calc(15px * va
 @media (max-height: 500px) and (orientation: landscape) and (max-width: 950px) {
   html[data-ui-mode="touch"] #reviewView .review-card__rule h2 { font-size: calc(18px * var(--review-text-scale, 1)); }
 }
+
+/* v20.4 — two pattern kinds and a form-scoped rule library. */
+.note-kind-switch {
+  display: inline-flex; align-items: center; gap: 9px; max-width: 100%;
+  padding: 5px 0; border: 0; color: var(--muted); background: transparent;
+  font: inherit; font-size: 12px; font-weight: 750; cursor: pointer;
+}
+.note-kind-switch__track { width: 38px; height: 22px; flex: 0 0 38px; padding: 3px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-control); }
+.note-kind-switch__track i { display: block; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); transition: transform .15s ease; }
+.note-kind-switch[aria-checked="true"] .note-kind-switch__track i { transform: translateX(16px); }
+.note-kind-switch[aria-checked="false"] .note-kind-switch__clinical,
+.note-kind-switch[aria-checked="true"] .note-kind-switch__broad { color: var(--accent); }
+.note-kind-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 5px; }
+html[data-ui-mode="touch"] .note-kind-switch { min-height: 44px; }
+
+html[data-ui-mode] #ruleLibraryView .rule-library-layout { display: flex; flex-direction: column; min-height: 0; overflow: hidden; gap: 10px; padding-bottom: 2px; }
+#ruleLibraryView .rule-library-heading { flex: 0 0 auto; margin: 0; align-items: center; }
+#ruleLibraryView .rule-library-heading h1 { font-size: clamp(22px, 2.4vw, 28px); }
+.rule-library-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex: 0 0 auto; gap: 4px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 13px; background: var(--panel-strong); }
+.rule-library-tabs button, .rule-form-tabs button { min-width: 0; border: 0; color: var(--muted); background: transparent; font: inherit; font-size: 14px; font-weight: 750; cursor: pointer; }
+.rule-library-tabs button { min-height: 42px; padding: 8px 10px; border-radius: 9px; }
+.rule-library-tabs button[aria-selected="true"], .rule-form-tabs button[aria-selected="true"] { color: var(--accent); background: var(--surface-section); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.rule-library-tabs button:hover, .rule-form-tabs button:hover { color: var(--text); background: var(--surface-control); }
+.rule-form-tabs { display: flex; flex: 0 0 auto; min-width: 0; gap: 6px; overflow-x: auto; padding: 3px 2px 6px; scrollbar-width: thin; }
+.rule-form-tabs button { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; max-width: 220px; min-height: 36px; padding: 7px 12px; border-radius: 9px; }
+.rule-form-tabs button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rule-form-tabs small { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .8; }
+#ruleLibraryView :is(button, input, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#ruleLibraryView .rule-search { width: 100%; margin: 0; flex: 0 0 auto; }
+#ruleLibraryView #ruleSearchStatus { margin: 0; font-size: 12px; }
+#ruleSearchStatus:empty { display: none; }
+.rule-library-panels { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding: 2px; }
+#ruleLibraryView .rule-library-panels > .panel { margin: 0; }
+#ruleLibraryView [role="tabpanel"][hidden] { display: none !important; }
+
+/* Desktop spacing keeps the form grid and analysis inside the active window. */
+html[data-ui-mode="desktop"] #formsGrid { grid-auto-rows: minmax(90px, calc((100% - 32px) / 5)); }
+html[data-ui-mode="desktop"] #libraryView .analysis-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+html[data-ui-mode="desktop"] #libraryView .stat-card { padding: 8px 4px; text-align: center; }
+html[data-ui-mode="desktop"] #libraryView .stat-card__label { font-size: 10px; letter-spacing: 0; text-transform: none; white-space: normal; overflow: visible; }
+html[data-ui-mode="desktop"] #reviewView .v3-scroll--review { padding-bottom: 28px; }
+html[data-ui-mode="desktop"] #settingsView .settings-card--text-size { grid-column: auto; gap: 10px; }
+html[data-ui-mode="desktop"] #settingsView .settings-card--text-size .review-text-preview { padding: 10px 12px; font-size: calc(16px * var(--review-text-scale, 1)); line-height: 1.4; }
+
+@media (max-width: 640px) {
+  html[data-ui-mode="touch"] #ruleLibraryView .rule-library-layout { gap: 7px; }
+  #ruleLibraryView .rule-library-heading .eyebrow { display: none; }
+  #ruleLibraryView .rule-library-heading { gap: 8px; flex-wrap: nowrap; }
+  #ruleLibraryView .rule-library-heading h1 { font-size: 20px; }
+  #ruleLibraryView #exportRulesBtn { min-height: 36px; padding: 6px 8px; font-size: 11px; }
+  .rule-library-tabs { gap: 2px; }
+  .rule-library-tabs button { min-height: 44px; padding: 6px 3px; font-size: 12px; line-height: 1.3; }
+  .rule-form-tabs button { min-height: 42px; max-width: 170px; padding: 7px 10px; font-size: 13px; }
+  #ruleLibraryView .rule-library-panels > .panel { padding: 12px; }
+}
+@media (max-width: 900px), (max-height: 500px) and (orientation: landscape) and (max-width: 950px) {
+  html[data-ui-mode="touch"] #reviewView .review-card__topline { flex-direction: row; align-items: flex-start; gap: 8px; }
+  html[data-ui-mode="touch"] #reviewView .review-card__topline .rule-card__meta { flex: 1; min-width: 0; }
+  html[data-ui-mode="touch"] #reviewView .review-card__topline .review-card__desktop-suspend { display: inline-flex; flex: 0 0 auto; width: auto; min-height: 28px; margin: 0; padding: 4px 9px; border-radius: 999px; font-size: 11px; line-height: 1.5; }
+}
+@media (prefers-reduced-motion: reduce) { .note-kind-switch__track i { transition: none; } }
+/* Keep all three frequency lists readable without scrolling at standard desktop heights. */
+html[data-ui-mode="desktop"] #libraryView .panel--analysis { gap: 8px; padding: 14px; }
+html[data-ui-mode="desktop"] #libraryView .analysis-section { padding-top: 7px; }
+html[data-ui-mode="desktop"] #libraryView .analysis-section__title { margin-bottom: 5px; }
+html[data-ui-mode="desktop"] #libraryView .frequency-list { gap: 3px; }
+html[data-ui-mode="desktop"] #libraryView .frequency-item__label { margin-bottom: 1px; font-size: 12px; line-height: 16px; }
+html[data-ui-mode="desktop"] #libraryView .frequency-item__bar { height: 3px; }
+html[data-ui-mode="desktop"] #libraryView .frequency-item > strong { font-size: 12px; }
+@media (max-height: 800px) {
+  html[data-ui-mode="desktop"] #libraryView .panel--analysis .panel__heading { gap: 8px; }
+  html[data-ui-mode="desktop"] #libraryView .panel--analysis h2 { font-size: 18px; white-space: nowrap; }
+  html[data-ui-mode="desktop"] #libraryView .panel--analysis .badge { white-space: nowrap; }
+  html[data-ui-mode="desktop"] #libraryView .frequency-list { gap: 1px; }
+  html[data-ui-mode="desktop"] #libraryView .frequency-item__label { margin-bottom: 0; }
+  html[data-ui-mode="desktop"] #libraryView .frequency-item__bar { height: 2px; }
+  html[data-ui-mode="desktop"] #libraryView .frequency-item > strong { line-height: 18px; }
+}
+@media (max-width: 900px), (max-height: 500px) and (orientation: landscape) and (max-width: 950px) {
+  html[data-ui-mode="touch"] #reviewView .review-card__topline .review-card__desktop-suspend { height: 28px; }
+}
+@media (max-width: 640px) {
+  html[data-ui-mode="touch"] #ruleLibraryView .rule-library-heading { flex-direction: row; text-align: left; }
+  html[data-ui-mode="touch"] #ruleLibraryView .rule-library-heading h1 { font-size: 18px; }
+  html[data-ui-mode="touch"] #ruleLibraryView .rule-library-heading .v3-heading__actions { display: flex; width: auto; flex: 0 0 auto; }
+  html[data-ui-mode="touch"] #ruleLibraryView .rule-library-heading .button { width: auto; }
+  html[data-ui-mode="touch"] #ruleLibraryView .panel__heading { flex-direction: row; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+  html[data-ui-mode="touch"] #ruleLibraryView .panel__heading h2 { margin: 0; font-size: 18px; }
+  html[data-ui-mode="touch"] #ruleLibraryView .panel__heading p { margin: 5px 0 0; font-size: 13px; line-height: 1.4; }
+  html[data-ui-mode="touch"] #ruleLibraryView .panel__heading > .badge { flex: 0 0 auto; width: auto; }
+}
+
+/* v21 — selectable card browser, exam selections, and tablet sizing. */
+/* Privacy remains linked from Settings; an extra document footer displaces app chrome. */
+.app-shell > footer { display: none; }
+html[data-ui-mode] #ruleLibraryView .rule-library-layout { gap: 7px; }
+#ruleLibraryView .rule-library-heading { padding: 0; flex-direction: row; justify-content: space-between; }
+#ruleLibraryView .rule-library-heading .eyebrow { display: none; }
+#ruleLibraryView .rule-library-heading h1 { margin: 0; font-size: 22px; }
+#ruleLibraryView .rule-library-heading .v3-heading__actions { display: flex; width: auto; }
+#ruleLibraryView .rule-library-tabs button { min-height: 34px; }
+.rule-kind-tabs { background: transparent; padding: 0; border: 0; }
+.rule-kind-tabs button { min-height: 34px; font-size: 13px; }
+.rule-form-strip { display: grid; grid-template-columns: 30px minmax(0, 1fr) 30px; gap: 5px; flex: 0 0 auto; min-width: 0; align-items: stretch; }
+.rule-scroll-button { border: 1px solid var(--line); border-radius: 8px; background: var(--surface-control); color: var(--text); font: inherit; font-size: 24px; cursor: pointer; }
+.rule-scroll-button:disabled { opacity: .3; cursor: default; }
+.rule-form-tabs { height: 52px; align-items: start; overflow-y: hidden; touch-action: pan-x; scrollbar-width: auto; scrollbar-color: var(--muted-2) var(--surface-control); padding-bottom: 2px; }
+#ruleLibraryView .rule-library-layout { touch-action: pan-x pan-y; }
+.rule-form-tabs::-webkit-scrollbar { height: 9px; }
+.rule-form-tabs::-webkit-scrollbar-track { background: var(--surface-control); border-radius: 8px; }
+.rule-form-tabs::-webkit-scrollbar-thumb { background: var(--muted-2); border: 2px solid var(--surface-control); border-radius: 8px; }
+.rule-browser-search { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; min-width: 0; }
+#ruleLibraryView .rule-browser-search .rule-search { flex: 1; width: auto; min-width: 0; max-width: none; }
+.rule-sort-label { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.rule-sort-label select, .rule-action-line select { min-width: 0; min-height: 34px; max-width: 100%; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-field); color: var(--text); font: inherit; font-size: 13px; }
+.rule-bulk-actions { flex: 0 0 auto; min-width: 0; max-height: 35dvh; overflow: auto; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-section); }
+.rule-selection-line, .rule-action-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.rule-selection-line > label { display: flex; align-items: center; gap: 7px; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.rule-selection-line > .muted { flex: 1; font-size: 12px; }
+#ruleLibraryView .rule-bulk-actions .button { min-height: 32px; padding: 5px 9px; font-size: 12px; width: auto; }
+.rule-action-line { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--line); }
+.rule-action-line > label { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); min-width: 0; }
+.rule-selection-line input, .rule-row-select input { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+#savedRuleBulkStatus { margin: 6px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+#savedRuleBulkStatus:empty { display: none; }
+#ruleLibraryView .rule-library-panels > .panel { padding: 10px; }
+#ruleLibraryView .panel__heading { margin-bottom: 8px; }
+#ruleLibraryView .panel__heading h2 { font-size: 16px; }
+#ruleLibraryView :is(#personalRulesList, #suspendedRulesList) { gap: 0; }
+.rule-browser-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: start; border-bottom: 1px solid var(--line); background: transparent; min-width: 0; }
+.rule-browser-row:hover { background: var(--surface-control); }
+.rule-browser-row.is-selected { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
+.rule-row-select { display: grid; place-items: center; min-height: 52px; cursor: pointer; }
+#ruleLibraryView .rule-browser-row .rule-card { min-width: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+html[data-ui-mode] #ruleLibraryView .rule-card__summary { grid-template-columns: minmax(0, 1fr) minmax(130px, auto) 115px; min-height: 52px; padding: 6px 30px 6px 6px; gap: 10px; }
+html[data-ui-mode] #ruleLibraryView .rule-card__summary-main { gap: 1px; min-width: 0; }
+html[data-ui-mode] #ruleLibraryView .rule-card__summary-main strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: 650; line-height: 1.4; max-width: 100%; }
+.rule-row-source { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.rule-row-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; max-width: 300px; }
+#ruleLibraryView .rule-row-tags :is(.note-tag, .badge) { padding: 2px 6px; font-size: 10px; line-height: 1.4; min-height: 0; }
+html[data-ui-mode] #ruleLibraryView .rule-card__summary-meta { font-size: 11px; text-align: right; }
+#ruleLibraryView .rule-card__details { background: var(--surface-section); }
+#ruleLibraryView .rule-card__controls label { min-width: 0; }
+.selected-review-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--accent-soft); font-size: 12px; line-height: 1.4; }
+.selected-review-bar .button { flex: 0 0 auto; min-height: 32px; padding: 5px 8px; font-size: 12px; }
+html[data-ui-mode="desktop"] #reviewView .selected-review-bar { grid-column: 1 / -1; }
+html[data-ui-mode="desktop"] #reviewView.has-selected-review .v3-scroll--review { grid-template-rows: auto auto auto minmax(0, 1fr); }
+
+/* Large Touch tablets use the same contained card body and rating dock. */
+html[data-ui-mode="touch"] #reviewView .v3-scroll--review { display: flex; flex-direction: column; align-items: stretch; gap: 6px; overflow: hidden !important; padding-bottom: 4px; }
+html[data-ui-mode="touch"] #reviewView :is(.review-heading, .review-type-filter, .review-progress, .selected-review-bar) { flex: 0 0 auto; margin: 0; min-width: 0; }
+html[data-ui-mode="touch"] #reviewView .review-list { flex: 1 1 auto; min-height: 0; width: 100%; }
+html[data-ui-mode="touch"] #reviewView .review-card { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; min-height: 0; overflow: hidden; }
+html[data-ui-mode="touch"] #reviewView .review-card__content { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+html[data-ui-mode="touch"] #reviewView .review-card__content > * { flex-shrink: 0; }
+html[data-ui-mode="touch"] #reviewView .review-card__rule { flex: 1 0 auto; }
+html[data-ui-mode="touch"] #reviewView .review-complete { height: 100%; min-height: 0; overflow: auto; }
+html[data-ui-mode="touch"] .app-shell { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--touch-topbar-height) var(--touch-nav-height) minmax(0, 1fr); overflow: hidden; }
+html[data-ui-mode="touch"] .topbar { grid-row: 1; }
+html[data-ui-mode="touch"] .area-nav { grid-row: 2; }
+html[data-ui-mode="touch"] .workspace { grid-row: 3; height: auto !important; min-height: 0; overflow: hidden; }
+html[data-ui-mode="touch"][data-active-view="logger"] .area-nav { display: flex !important; }
+html[data-ui-mode="touch"] .question-rail.is-expanded { top: calc(var(--touch-topbar-height) + var(--touch-nav-height) + 8px); }
+html[data-ui-mode="touch"] #ruleLibraryView :is(.rule-kind-tabs button, .rule-scroll-button, .rule-form-tabs button, .rule-bulk-actions .button) { min-height: 44px; }
+html[data-ui-mode="touch"] #ruleLibraryView .rule-library-tabs button { min-height: 44px; }
+html[data-ui-mode="touch"] #ruleLibraryView .rule-form-tabs { height: 60px; }
+html[data-ui-mode="touch"] #ruleLibraryView :is(.rule-sort-label select, .rule-action-line select) { min-height: 44px; font-size: 16px; }
+html[data-ui-mode="touch"] #ruleLibraryView .rule-row-select { min-height: 56px; }
+html[data-ui-mode="touch"] #ruleLibraryView .rule-selection-line > label { min-height: 44px; }
+
+@media (max-width: 1180px) {
+  html[data-ui-mode="desktop"] #reviewView .v3-scroll--review { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+  html[data-ui-mode="desktop"] #reviewView .review-heading { display: flex; flex-direction: row; justify-content: space-between; align-items: center; gap: 8px; flex: 0 0 auto; margin: 0; }
+  html[data-ui-mode="desktop"] #reviewView .review-heading h1 { font-size: 23px; }
+  html[data-ui-mode="desktop"] #reviewView :is(.review-type-filter, .review-progress, .selected-review-bar) { flex: 0 0 auto; }
+  html[data-ui-mode="desktop"] #reviewView .review-list { flex: 1 1 auto; min-height: 0; }
+  html[data-ui-mode] #ruleLibraryView .rule-card__summary { grid-template-columns: minmax(0, 1fr) 115px; gap: 2px 8px; }
+  .rule-row-tags { grid-column: 1; grid-row: 2; max-width: none; }
+  #ruleLibraryView .rule-card__summary-meta { grid-column: 2; grid-row: 1 / 3; }
+  #ruleLibraryView .rule-row-source { display: none; }
+}
+@media (min-width: 901px) and (max-width: 1366px) {
+  html[data-ui-mode="desktop"] .topbar { grid-template-columns: minmax(145px, 1fr) auto auto; gap: 8px; padding-inline: 10px; }
+  html[data-ui-mode="desktop"] .topbar__center--logger { min-width: 0; }
+  html[data-ui-mode="desktop"] .topbar__tools { min-width: 0; gap: 5px; }
+  html[data-ui-mode="desktop"] .brand__tagline { display: none; }
+  html[data-ui-mode="desktop"] :is(#backupBtn, #restoreBackupBtn) { display: none; }
+  html[data-ui-mode="desktop"] :is(#topPrevBtn, #topNextBtn) { display: none; }
+  html[data-ui-mode="desktop"] .logger-layout { grid-template-columns: 180px minmax(0, 1fr); }
+  html[data-ui-mode="desktop"] .logger-content { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; overflow-y: auto; }
+  html[data-ui-mode="desktop"] .option-row__text strong { white-space: normal; overflow-wrap: anywhere; }
+  html[data-ui-mode="desktop"] .selection-tools { grid-template-columns: minmax(0, 1fr); }
+  html[data-ui-mode="desktop"] .selection-tools .button { white-space: normal; }
+  html[data-ui-mode="desktop"] .logger-panel__footer .shortcut-hint { display: none; }
+  html[data-ui-mode="desktop"] .library-layout { grid-template-columns: minmax(0, 1fr) minmax(250px, .4fr); }
+}
+@media (min-width: 901px) and (max-width: 1180px) {
+  html[data-ui-mode="desktop"] .logger-content { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: max-content max-content; align-items: start; align-content: start; }
+  html[data-ui-mode="desktop"] .logger-content > .rule-section { grid-column: 1 / -1; }
+  html[data-ui-mode="desktop"] .logger-content > .choice-section { align-self: start; min-height: max-content; }
+  html[data-ui-mode="desktop"] .option-row kbd { display: none; }
+}
+@media (min-width: 641px) and (max-width: 900px) {
+  html[data-ui-mode="desktop"] .forms-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  html[data-ui-mode="desktop"] #reviewView .review-card__rule { min-height: 0; }
+}
+@media (max-width: 640px) {
+  html[data-ui-mode] #ruleLibraryView .rule-library-layout { gap: 5px; }
+  .rule-form-strip { grid-template-columns: 28px minmax(0, 1fr) 28px; gap: 3px; }
+  .rule-kind-tabs button { font-size: 11px; }
+  .rule-browser-search { gap: 6px; }
+  .rule-sort-label { font-size: 0; }
+  .rule-sort-label select { width: 115px; font-size: 12px; }
+  html[data-ui-mode="touch"] #ruleLibraryView .rule-sort-label select { width: 120px; font-size: 14px; }
+  #ruleLibraryView .rule-search { padding-inline: 8px; }
+  #ruleLibraryView .rule-search input { font-size: 14px; }
+  .rule-bulk-actions { padding: 5px 7px; }
+  .rule-selection-line { gap: 4px 7px; }
+  .rule-selection-line > .muted { font-size: 11px; flex-basis: calc(100% - 90px); }
+  #ruleLibraryView .rule-selection-line > #reviewSelectedRulesBtn { flex: 1; }
+  .rule-action-line > label { display: grid; gap: 3px; flex: 1 1 120px; }
+  #ruleLibraryView .rule-action-line .button { flex: 1 1 100%; }
+  #ruleLibraryView .rule-library-panels > .panel { padding: 7px; }
+  #ruleLibraryView .panel__heading h2 { font-size: 14px; }
+  .rule-browser-row { grid-template-columns: 30px minmax(0, 1fr); }
+  html[data-ui-mode] #ruleLibraryView .rule-card__summary { grid-template-columns: minmax(0, 1fr); padding-right: 24px; gap: 2px; }
+  html[data-ui-mode] #ruleLibraryView .rule-card__summary-main strong { font-size: 13px; }
+  #ruleLibraryView .rule-card__summary-meta { grid-column: 1; grid-row: 3; text-align: left; font-size: 10px; }
+  #ruleLibraryView .rule-row-tags :is(.note-tag, .badge) { font-size: 9px; }
+  #ruleLibraryView .rule-card__summary::after { right: 6px; }
+  #ruleLibraryView .rule-card__controls > label { flex: 1 1 100%; }
+  .selected-review-bar { padding: 5px 7px; gap: 6px; font-size: 10px; }
+  .selected-review-bar .button { max-width: 104px; white-space: normal; line-height: 1.2; }
+  html[data-ui-mode="touch"] #reviewView .selected-review-bar .button { min-height: 38px; }
+  html[data-ui-mode="desktop"] #reviewView .review-manage-label { display: none; }
+  html[data-ui-mode="desktop"] #reviewView .review-heading h1 { font-size: 20px; }
+}

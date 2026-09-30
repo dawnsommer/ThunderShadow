@@ -11,12 +11,12 @@
   <meta name="application-name" content="ThunderShadow">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=36"></script>
-  <script src="js/uuid.js?v=36"></script>
+  <script src="js/theme-init.js?v=38"></script>
+  <script src="js/uuid.js?v=38"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=36">
+  <link rel="stylesheet" href="css/styles.css?v=38">
 </head>
 <body>
   <div class="storm" aria-hidden="true">
@@ -107,7 +107,6 @@
               <div>
                 <p class="eyebrow">Your logged forms</p>
                 <h1>ThunderShadow</h1>
-                <p class="muted">Log NBME/CMS mistakes, capture study notes, and review what matters. Saved in this browser; optional private Google Drive sync connects your devices.</p>
               </div>
               <div class="panel__heading-actions">
                 <label class="search-box">
@@ -292,11 +291,11 @@
                     <div class="section-heading section-heading--inline desktop-section-heading">
                     <div>
                       <h3>Study note</h3>
-                      <p>Capture a clinical pearl or a cue for next time.</p>
+                      <p>Capture clinical cues or broader question-solving skills.</p>
                     </div>
                     </div>
                   </div>
-                  <div class="note-toolbar"><button id="noteKindBtn" class="note-tag" type="button" aria-pressed="false">Clinical pearl</button><span id="noteSourceLabel" class="note-source"></span></div>
+                  <div class="note-toolbar"><button id="noteKindBtn" class="note-kind-switch" type="button" role="switch" aria-checked="false" aria-label="Broad Pattern"><span class="note-kind-switch__clinical">Clinical Pattern</span><span class="note-kind-switch__track" aria-hidden="true"><i></i></span><span class="note-kind-switch__broad">Broad Pattern</span></button><span id="notePatternLabel" class="badge">No pattern</span><span id="noteSourceLabel" class="note-source"></span></div>
                   <textarea id="manualRuleInput" rows="3" maxlength="12000" spellcheck="true" aria-label="Study note"></textarea>
                 </div>
 
@@ -331,34 +330,68 @@
       </section>
 
       <section id="ruleLibraryView" class="view v3-view" aria-label="Personal rule library" hidden>
-        <div class="v3-scroll">
-          <div class="v3-heading">
-            <div><p class="eyebrow">Personal rule library</p><h1>Build your review deck</h1><p>Bring rules in from your logs, then expand a saved rule only when you need to edit it.</p></div>
+        <div class="v3-scroll rule-library-layout">
+          <div class="v3-heading rule-library-heading">
+            <div><p class="eyebrow">Personal rule library</p><h1>Browse your cards</h1></div>
             <div class="v3-heading__actions"><button id="exportRulesBtn" class="button button--ghost" type="button">Active-rules TSV</button></div>
           </div>
-          <section class="panel v3-panel">
-            <div class="panel__heading panel__heading--compact"><div><h2>Rules found in logs</h2><p class="muted">Select study notes to review, or add every note that is not already saved.</p></div><span id="candidateCountBadge" class="badge">0 found</span></div>
-            <div id="candidateBulkActions" class="candidate-bulk-actions" hidden>
-              <label class="candidate-select-all"><input id="selectAllCandidates" type="checkbox"><span>Select all</span></label>
-              <span id="candidateSelectionCount" class="muted">0 selected</span>
-              <div class="candidate-bulk-actions__buttons">
-                <button id="addSelectedCandidatesBtn" class="button button--ghost" type="button" disabled>Add selected</button>
-                <button id="addAllCandidatesBtn" class="button button--primary" type="button">Add all</button>
-              </div>
+          <div id="ruleLibraryTabs" class="rule-library-tabs" role="tablist" aria-label="Rule library sections">
+            <button id="savedRulesTab" type="button" role="tab" data-rule-section="saved" aria-controls="savedRulesPanel" aria-selected="true">Saved rules</button>
+            <button id="logRulesTab" type="button" role="tab" data-rule-section="logs" aria-controls="logRulesPanel" aria-selected="false" tabindex="-1">Rules found in logs</button>
+            <button id="suspendedRulesTab" type="button" role="tab" data-rule-section="suspended" aria-controls="suspendedRulesPanel" aria-selected="false" tabindex="-1">Suspended rules</button>
+          </div>
+          <div id="ruleKindTabs" class="rule-library-tabs rule-kind-tabs" role="tablist" aria-label="Filter rules by kind">
+            <button type="button" role="tab" data-library-kind="all" aria-selected="true">All Rules</button>
+            <button type="button" role="tab" data-library-kind="clinical" aria-selected="false" tabindex="-1">Clinical Pattern</button>
+            <button type="button" role="tab" data-library-kind="reasoning" aria-selected="false" tabindex="-1">Broad Pattern</button>
+          </div>
+          <div class="rule-form-strip">
+            <button id="ruleFormsLeftBtn" class="rule-scroll-button" type="button" aria-label="Scroll forms left" aria-controls="ruleFormTabs">‹</button>
+            <div id="ruleFormTabs" class="rule-form-tabs" role="tablist" aria-label="Filter rules by form"></div>
+            <button id="ruleFormsRightBtn" class="rule-scroll-button" type="button" aria-label="Scroll forms right" aria-controls="ruleFormTabs">›</button>
+          </div>
+          <div class="rule-browser-search">
+            <label class="search-box rule-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="ruleSearchInput" type="search" placeholder="Search rules, patterns, or source forms" aria-label="Search rules" autocomplete="off"></label>
+            <label class="rule-sort-label">Sort<select id="ruleSortSelect"><option value="due">Due date</option><option value="pattern">Reasoning pattern</option><option value="kind">Pattern kind</option><option value="source">Source form</option><option value="wording">Wording A–Z</option></select></label>
+          </div>
+          <p id="ruleSearchStatus" class="muted" aria-live="polite"></p>
+          <div id="savedRuleBulkActions" class="rule-bulk-actions">
+            <div class="rule-selection-line">
+              <label><input id="selectAllSavedRules" type="checkbox"><span>All shown</span></label>
+              <span id="savedRuleSelectionCount" class="muted" aria-live="polite">0 selected</span>
+              <button id="clearSavedRuleSelectionBtn" class="button button--subtle" type="button" disabled>Clear</button>
+              <button id="reviewSelectedRulesBtn" class="button button--primary" type="button" disabled title="Review selected active cards regardless of their due dates">Review selected</button>
             </div>
-            <div id="ruleCandidatesList" class="v3-list v3-list--compact"></div>
-          </section>
-          <section class="panel v3-panel saved-rules-panel">
-            <div class="panel__heading panel__heading--compact"><div><h2>Saved rules</h2><p class="muted">Compact rows stay out of the way. Expand one to edit, open its source, or suspend it.</p></div><span id="ruleCountBadge" class="badge">0 active</span></div>
-            <label class="search-box rule-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="ruleSearchInput" type="search" placeholder="Search saved rules, tags, or source forms" aria-label="Search saved rules" autocomplete="off"></label>
-            <p id="ruleSearchStatus" class="muted" aria-live="polite"></p>
-            <div id="personalRulesList" class="v3-list v3-list--compact"></div>
-            <details id="suspendedRulesPanel" class="suspended-rules-panel">
-              <summary><span>Suspended rules</span><span id="suspendedCountBadge" class="badge">0 suspended</span></summary>
-              <p class="muted">Suspended rules stay in your library and backups, but are removed from daily review.</p>
+            <div id="savedRuleActionControls" class="rule-action-line" hidden>
+              <label>Action<select id="savedRuleBulkAction"><option value="due">Due today</option><option value="suspend">Suspend</option><option value="resume">Resume</option><option value="pattern">Change reasoning pattern</option><option value="kind">Change pattern kind</option></select></label>
+              <label id="bulkRulePatternLabel" hidden>Pattern<select id="bulkRulePattern"></select></label>
+              <label id="bulkRuleKindLabel" hidden>Kind<select id="bulkRuleKind"><option value="clinical">Clinical Pattern</option><option value="reasoning">Broad Pattern</option></select></label>
+              <button id="applySavedRuleBulkBtn" class="button button--ghost" type="button" disabled>Apply to selected</button>
+            </div>
+            <p id="savedRuleBulkStatus" class="muted" role="status"></p>
+          </div>
+          <div class="rule-library-panels">
+            <section id="savedRulesPanel" class="panel v3-panel saved-rules-panel" role="tabpanel" aria-labelledby="savedRulesTab">
+              <div class="panel__heading panel__heading--compact"><div><h2>Saved rules</h2></div><span id="ruleCountBadge" class="badge">0 active</span></div>
+              <div id="personalRulesList" class="v3-list v3-list--compact"></div>
+            </section>
+            <section id="logRulesPanel" class="panel v3-panel" role="tabpanel" aria-labelledby="logRulesTab" hidden>
+              <div class="panel__heading panel__heading--compact"><div><h2>Rules found in logs</h2><p class="muted">Add unsaved study notes from all forms or the selected form.</p></div><span id="candidateCountBadge" class="badge">0 found</span></div>
+              <div id="candidateBulkActions" class="candidate-bulk-actions" hidden>
+                <label class="candidate-select-all"><input id="selectAllCandidates" type="checkbox"><span>Select all</span></label>
+                <span id="candidateSelectionCount" class="muted">0 selected</span>
+                <div class="candidate-bulk-actions__buttons">
+                  <button id="addSelectedCandidatesBtn" class="button button--ghost" type="button" disabled>Add selected</button>
+                  <button id="addAllCandidatesBtn" class="button button--primary" type="button">Add all shown</button>
+                </div>
+              </div>
+              <div id="ruleCandidatesList" class="v3-list v3-list--compact"></div>
+            </section>
+            <section id="suspendedRulesPanel" class="panel v3-panel" role="tabpanel" aria-labelledby="suspendedRulesTab" hidden>
+              <div class="panel__heading panel__heading--compact"><div><h2>Suspended rules</h2><p class="muted">Kept in your library and backups, outside daily review.</p></div><span id="suspendedCountBadge" class="badge">0 suspended</span></div>
               <div id="suspendedRulesList" class="v3-list v3-list--compact"></div>
-            </details>
-          </section>
+            </section>
+          </div>
         </div>
       </section>
 
@@ -389,11 +422,12 @@
       <section id="reviewView" class="view v3-view" aria-label="Active rules review" hidden>
         <div class="v3-scroll v3-scroll--review">
           <div class="v3-heading review-heading">
-            <div><p class="eyebrow">Active Rules</p><h1>Daily review</h1><p>Rate one rule at a time using the intervals saved in Settings.</p></div>
+            <div><p class="eyebrow">Active Rules</p><h1 id="reviewHeading">Daily review</h1><p>Rate one rule at a time using the intervals saved in Settings.</p></div>
             <div class="v3-heading__actions"><span id="reviewDueBadge" class="badge">0 due</span><button id="viewSuspendedRulesBtn" class="button button--ghost review-manage-button" type="button" aria-label="Suspended rules (0)" title="Suspended rules"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg><span class="review-manage-label">Suspended rules (<span id="reviewSuspendedCount">0</span>)</span></button></div>
           </div>
-          <div id="reviewTypeFilter" class="review-type-filter segmented-control" role="group" aria-label="Review note type"><button type="button" data-review-kind="all" aria-pressed="true">All cards</button><button type="button" data-review-kind="reasoning" aria-pressed="false">Reasoning cues</button><button type="button" data-review-kind="clinical" aria-pressed="false">Clinical pearls</button></div>
+          <div id="reviewTypeFilter" class="review-type-filter segmented-control" role="group" aria-label="Review note type"><button type="button" data-review-kind="all" aria-pressed="true">All cards</button><button type="button" data-review-kind="reasoning" aria-pressed="false">Broad Patterns</button><button type="button" data-review-kind="clinical" aria-pressed="false">Clinical Patterns</button></div>
           <div id="reviewProgress" class="review-progress" aria-live="polite"></div>
+          <div id="selectedReviewBar" class="selected-review-bar" hidden><span id="selectedReviewStatus"></span><button id="exitSelectedReviewBtn" class="button button--ghost" type="button">Return to daily review</button></div>
           <div id="reviewRulesList" class="review-list" role="region" aria-label="Current review card"></div>
         </div>
       </section>
@@ -428,7 +462,7 @@
               </div>
               <div class="settings-card__actions"><button class="button button--subtle" type="submit">Save shortcuts</button><button id="resetReviewShortcutsBtn" class="button button--ghost" type="button">Reset defaults</button></div>
             </form>
-            <section class="panel v3-panel settings-card settings-card--wide">
+            <section class="panel v3-panel settings-card settings-card--wide settings-card--text-size">
               <div><h2>Card text size</h2><p class="muted">Adjust rule text and notes on this device. Saved automatically.</p></div>
               <div class="review-text-size-control"><label for="reviewTextSize">Text size <output id="reviewTextSizeValue" for="reviewTextSize">100%</output></label><input id="reviewTextSize" type="range" min="80" max="140" step="5" value="100"><button id="resetReviewTextSizeBtn" class="button button--ghost" type="button">Reset</button></div>
               <p class="review-text-preview">Pause and identify the finding that changes your next step.</p>
@@ -700,13 +734,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=36" defer></script>
-  <script src="js/reasoning.js?v=36" defer></script>
-  <script src="js/analytics.js?v=36" defer></script>
-  <script src="js/browser-api.js?v=36" defer></script>
-  <script src="js/sync.js?v=36" defer></script>
-  <script src="js/app.js?v=36" defer></script>
-  <script src="js/v3.js?v=36" defer></script>
-  <script src="js/cloud-sync.js?v=36" defer></script>
+  <script src="js/config.js?v=38" defer></script>
+  <script src="js/reasoning.js?v=38" defer></script>
+  <script src="js/analytics.js?v=38" defer></script>
+  <script src="js/browser-api.js?v=38" defer></script>
+  <script src="js/sync.js?v=38" defer></script>
+  <script src="js/app.js?v=38" defer></script>
+  <script src="js/v3.js?v=38" defer></script>
+  <script src="js/cloud-sync.js?v=38" defer></script>
 </body>
 </html>

@@ -8,8 +8,17 @@
     review: document.getElementById("reviewView"),
     settings: document.getElementById("settingsView")
   };
-  const state = { rules: [], candidates: [], analytics: null, review: null, reviewIntervals: { again: 1, hard: 3, good: 7, easy: 30 }, reviewedThisSession: 0, activeArea: null, reviewKind: "all", reviewLoad: 0, reviewShortcuts: { again: "1", hard: "2", good: "3", easy: "4", quickGood: "Space" }, settingsCategory: "cards", restorePreview: null };
+  const state = { rules: [], candidates: [], analytics: null, review: null, reviewIntervals: { again: 1, hard: 3, good: 7, easy: 30 }, reviewedThisSession: 0, activeArea: null, reviewKind: "all", reviewLoad: 0, reviewShortcuts: { again: "1", hard: "2", good: "3", easy: "4", quickGood: "Space" }, settingsCategory: "cards", librarySection: "saved", libraryForms: { saved: "all", logs: "all", suspended: "all" }, restorePreview: null };
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+  state.libraryKinds = { saved: "all", logs: "all", suspended: "all" };
+  state.selectedRules = new Set();
+  state.selectionAnchor = null;
+  state.bulkBusy = false;
+  state.selectedReview = null;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem("thundershadow:selected-review") || "null");
+    if (Array.isArray(saved?.ids) && saved.ids.every((id) => typeof id === "string")) state.selectedReview = { ids: [...new Set(saved.ids)], reviewed: Math.max(0, Number(saved.reviewed) || 0) };
+  } catch (_) {}
   const labelResponse = (value) => ({ again: "Again", hard: "Hard", good: "Good", easy: "Easy", still_weak: "Still weak", partly_reliable: "Partly reliable", reliable_today: "Reliable today", mastered: "Mastered", skip: "Skip" })[value] || value;
 
   function applyReviewTextSize(value, persist = false) {
@@ -25,8 +34,8 @@
   document.getElementById("reviewTextSize").addEventListener("input", (event) => applyReviewTextSize(event.target.value, true));
   document.getElementById("resetReviewTextSizeBtn").addEventListener("click", () => applyReviewTextSize(100, true));
 
-  const kindLabel = (kind) => kind === "reasoning" ? "Reasoning cue" : "Clinical pearl";
-  const tagMarkup = (rule) => `<span class="note-tag note-tag--static" data-note-kind="${escapeHTML(rule.noteKind)}">${kindLabel(rule.noteKind)}</span>${rule.noteKind === "reasoning" && rule.pattern ? `<span class="badge">${escapeHTML(rule.patternLabel)}</span>` : ""}`;
+  const kindLabel = (kind) => kind === "reasoning" ? "Broad Pattern" : "Clinical Pattern";
+  const tagMarkup = (rule) => `<span class="note-tag note-tag--static" data-note-kind="${escapeHTML(rule.noteKind)}">${kindLabel(rule.noteKind)}</span>${rule.pattern ? `<span class="badge">${escapeHTML(rule.patternLabel)}</span>` : ""}`;
   const patternOptions = (selected) => `<option value="">No pattern</option>` + window.ThunderShadowReasoning.PATTERNS.map((pattern) => `<option value="${pattern.value}"${pattern.value === selected ? " selected" : ""}>${pattern.code} — ${pattern.label}</option>`).join("");
   const sourceLabel = (rule) => rule.sourceFormName ? `${rule.sourceFormName} · Entry ${rule.sourceQuestionNumber}` : rule.sourceFormId ? `Source form · Entry ${rule.sourceQuestionNumber || "?"}` : "Source unavailable";
 
@@ -91,10 +100,13 @@
       ? rule.reviewHistory.slice(0, 5).map((review) => `<li>${escapeHTML(labelResponse(review.response))} · ${escapeHTML(review.reviewedAt.slice(0, 10))} → ${escapeHTML(review.nextReviewAt)}</li>`).join("")
       : "<li>No reviews yet.</li>";
     return `
-      <details class="rule-card${suspended ? " rule-card--suspended" : ""}" data-rule-id="${escapeHTML(rule.id)}">
+      <article class="rule-browser-row${state.selectedRules.has(rule.id) ? " is-selected" : ""}" data-rule-id="${escapeHTML(rule.id)}">
+      <label class="rule-row-select"><input type="checkbox" data-saved-rule-select${state.selectedRules.has(rule.id) ? " checked" : ""} aria-label="Select ${escapeHTML(rule.ruleText.slice(0, 120))}"></label>
+      <details class="rule-card${suspended ? " rule-card--suspended" : ""}">
         <summary class="rule-card__summary">
-          <span class="rule-card__summary-main"><span class="rule-tags">${tagMarkup(rule)}</span><strong>${escapeHTML(rule.ruleText)}</strong></span>
-          <span class="rule-card__summary-meta">${rule.occurrenceCount} occurrence${rule.occurrenceCount === 1 ? "" : "s"} · ${suspended ? "suspended" : `due ${escapeHTML(rule.nextReviewAt || "today")}`}</span>
+          <span class="rule-card__summary-main"><strong title="${escapeHTML(rule.ruleText)}">${escapeHTML(rule.ruleText)}</strong><span class="rule-row-source">${escapeHTML(sourceLabel(rule))}</span></span>
+          <span class="rule-row-tags">${tagMarkup(rule)}</span>
+          <span class="rule-card__summary-meta">${suspended ? "Suspended" : `Due ${escapeHTML(rule.nextReviewAt || "today")}`}</span>
         </summary>
         <div class="rule-card__details">
           <div class="rule-card__meta">
@@ -106,8 +118,8 @@
           <p class="rule-source" title="${escapeHTML(rule.sourceNoteId || rule.id)}">${escapeHTML(sourceLabel(rule))}<small>Rule ID: ${escapeHTML(rule.id)}${rule.sourceNoteId ? ` · Note ID: ${escapeHTML(rule.sourceNoteId)}` : ""}</small></p>
           <label class="rule-edit-label"><span>Rule wording</span><textarea class="rule-card__text" maxlength="12000" aria-label="Canonical rule wording">${escapeHTML(rule.ruleText)}</textarea></label>
           <div class="rule-card__controls">
-            <label>Note tag<select class="rule-kind" aria-label="Note tag"><option value="clinical"${rule.noteKind === "clinical" ? " selected" : ""}>Clinical pearl</option><option value="reasoning"${rule.noteKind === "reasoning" ? " selected" : ""}>Reasoning cue</option></select></label>
-            <label class="rule-pattern-label"${rule.noteKind === "clinical" ? " hidden" : ""}>Pattern<select class="rule-pattern" aria-label="Reasoning cue pattern">${patternOptions(rule.pattern)}</select></label>
+            <label>Note tag<select class="rule-kind" aria-label="Note tag"><option value="clinical"${rule.noteKind === "clinical" ? " selected" : ""}>Clinical Pattern</option><option value="reasoning"${rule.noteKind === "reasoning" ? " selected" : ""}>Broad Pattern</option></select></label>
+            <label class="rule-pattern-label">Pattern<select class="rule-pattern" aria-label="Reasoning pattern">${patternOptions(rule.pattern)}</select></label>
             ${suspended ? "" : `<label>Status <select class="rule-status">${["new", "active", "improving", "mastered"].map((status) => `<option value="${status}"${rule.status === status ? " selected" : ""}>${status}</option>`).join("")}</select></label>`}
             <label class="rule-notes-label">Notes <input class="rule-notes" maxlength="12000" value="${escapeHTML(rule.notes)}" placeholder="Optional notes"></label>
             <button class="button button--primary" data-rule-action="save" type="button">Save</button>
@@ -119,52 +131,216 @@
           <details class="review-history"><summary>Review history (${rule.reviewHistory.length})</summary><ul>${history}</ul></details>
         </div>
       </details>
+      </article>
     `;
+  }
+
+  function ruleMatchesForm(rule, formId) {
+    return formId === "all" || rule.sourceFormId === formId || (rule.occurrences || []).some((item) => item.formId === formId);
+  }
+
+  function ruleMatchesSearch(rule, query) {
+    return !query || [rule.ruleText, rule.notes, kindLabel(rule.noteKind), rule.patternLabel, rule.id, rule.sourceNoteId, sourceLabel(rule), ...(rule.occurrences || []).map((item) => `${item.formName} ${item.noteId}`)].join(" ").toLowerCase().includes(query);
+  }
+
+  function visibleCandidates() {
+    const query = document.getElementById("ruleSearchInput").value.trim().toLowerCase();
+    return sortRules(state.candidates.map((candidate, index) => ({ candidate, index })).filter(({ candidate }) => ruleMatchesKind(candidate, "logs") && ruleMatchesForm(candidate, state.libraryForms.logs) && ruleMatchesSearch(candidate, query)), (item) => item.candidate);
+  }
+
+  function ruleMatchesKind(rule, section) {
+    return state.libraryKinds[section] === "all" || state.libraryKinds[section] === rule.noteKind;
+  }
+
+  function sortRules(items, getRule = (item) => item) {
+    const sort = document.getElementById("ruleSortSelect").value;
+    const key = (rule) => sort === "pattern" ? `${rule.pattern ? window.ThunderShadowReasoning.PATTERNS.findIndex((item) => item.value === rule.pattern) : 9}` : sort === "kind" ? kindLabel(rule.noteKind) : sort === "source" ? sourceLabel(rule) : sort === "wording" ? rule.ruleText : rule.nextReviewAt || "";
+    return [...items].sort((a, b) => key(getRule(a)).localeCompare(key(getRule(b)), undefined, { numeric: true }) || getRule(a).ruleText.localeCompare(getRule(b).ruleText) || String(getRule(a).id || "").localeCompare(String(getRule(b).id || "")));
+  }
+
+  function visibleSavedRules(section = state.librarySection) {
+    const query = document.getElementById("ruleSearchInput").value.trim().toLowerCase();
+    return sortRules(state.rules.filter((rule) => (rule.status === "archived") === (section === "suspended") && ruleMatchesKind(rule, section) && ruleMatchesForm(rule, state.libraryForms[section]) && ruleMatchesSearch(rule, query)));
+  }
+
+  function scopedCandidate(candidate) {
+    const source = (candidate.occurrences || []).find((item) => item.formId === state.libraryForms.logs);
+    return source ? { ...candidate, sourceFormId: source.formId, sourceFormName: source.formName, sourceQuestionNumber: source.entryNumber, sourceNoteId: source.noteId, sourceDate: source.date } : candidate;
+  }
+
+  function renderFormTabs() {
+    const forms = new Map(app.getForms().map((form) => [form.id, form.name]));
+    const items = (state.librarySection === "logs" ? state.candidates : state.rules.filter((rule) => (rule.status === "archived") === (state.librarySection === "suspended"))).filter((rule) => ruleMatchesKind(rule, state.librarySection));
+    for (const rule of items) {
+      if (rule.sourceFormId && !forms.has(rule.sourceFormId)) forms.set(rule.sourceFormId, rule.sourceFormName || "Unavailable form");
+      for (const item of rule.occurrences || []) if (!forms.has(item.formId)) forms.set(item.formId, item.formName || "Unavailable form");
+    }
+    if (state.libraryForms[state.librarySection] !== "all" && !forms.has(state.libraryForms[state.librarySection])) state.libraryForms[state.librarySection] = "all";
+    const options = [["all", "All forms"], ...[...forms].sort((a, b) => a[1].localeCompare(b[1]))];
+    document.getElementById("ruleFormTabs").innerHTML = options.map(([id, name]) => {
+      const selected = state.libraryForms[state.librarySection] === id;
+      const count = items.filter((rule) => ruleMatchesForm(rule, id)).length;
+      return `<button type="button" role="tab" aria-controls="${state.librarySection === "saved" ? "savedRulesPanel" : state.librarySection === "logs" ? "logRulesPanel" : "suspendedRulesPanel"}" data-rule-form="${escapeHTML(id)}" aria-selected="${selected}" tabindex="${selected ? 0 : -1}" title="${escapeHTML(name)}"><span>${escapeHTML(name)}</span><small>${count}</small></button>`;
+    }).join("");
+    document.querySelectorAll("[data-library-kind]").forEach((tab) => {
+      const selected = tab.dataset.libraryKind === state.libraryKinds[state.librarySection];
+      tab.setAttribute("aria-selected", String(selected));
+      tab.setAttribute("aria-controls", state.librarySection === "saved" ? "savedRulesPanel" : state.librarySection === "logs" ? "logRulesPanel" : "suspendedRulesPanel");
+      tab.tabIndex = selected ? 0 : -1;
+    });
+    requestAnimationFrame(updateFormScroll);
+  }
+
+  function selectLibrarySection(section, focus = false) {
+    if (state.bulkBusy) return;
+    if (state.librarySection !== section) { state.selectedRules.clear(); state.selectionAnchor = null; document.getElementById("savedRuleBulkStatus").textContent = ""; }
+    state.librarySection = section;
+    document.querySelectorAll("[data-rule-section]").forEach((tab) => {
+      const selected = tab.dataset.ruleSection === section;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+      if (selected && focus) tab.focus({ preventScroll: true });
+    });
+    renderFormTabs();
+    renderSavedRules();
+    renderCandidates();
+    views.library.querySelector(".rule-library-panels").scrollTop = 0;
   }
 
   async function loadLibrary() {
     const payload = await app.apiRequest("/api/rules");
     state.rules = payload.rules;
     state.candidates = payload.candidates;
-    const activeRules = state.rules.filter((rule) => rule.status !== "archived");
-    const suspendedRules = state.rules.filter((rule) => rule.status === "archived");
-    document.getElementById("ruleCountBadge").textContent = `${activeRules.length} active`;
-    document.getElementById("suspendedCountBadge").textContent = `${suspendedRules.length} suspended`;
-    document.getElementById("candidateCountBadge").textContent = `${state.candidates.length} found`;
-    document.getElementById("candidateBulkActions").hidden = !state.candidates.length;
-    document.getElementById("selectAllCandidates").checked = false;
-    document.getElementById("selectAllCandidates").indeterminate = false;
-    renderSavedRules();
-    document.getElementById("ruleCandidatesList").innerHTML = state.candidates.length
-      ? state.candidates.map((candidate, index) => `
-          <article class="candidate-card" data-candidate-index="${index}">
+    state.selectedRules = new Set([...state.selectedRules].filter((id) => state.rules.some((rule) => rule.id === id && (rule.status === "archived") === (state.librarySection === "suspended"))));
+    if (state.bulkBusy) { renderFormTabs(); renderSavedRules(); renderCandidates(); }
+    else selectLibrarySection(state.librarySection);
+  }
+
+  function renderCandidates() {
+    const visible = visibleCandidates();
+    document.getElementById("candidateCountBadge").textContent = `${visible.length} found`;
+    document.getElementById("candidateBulkActions").hidden = !visible.length;
+    document.getElementById("ruleCandidatesList").innerHTML = visible.length
+      ? visible.map(({ candidate: original, index }) => {
+          const candidate = scopedCandidate(original);
+          return `<article class="candidate-card" data-candidate-index="${index}">
             <label class="candidate-card__select"><input type="checkbox" data-candidate-select aria-label="Select rule from ${escapeHTML(candidate.sourceFormName)}"></label>
             <div class="candidate-card__content">${tagMarkup(candidate)}<strong>${escapeHTML(candidate.ruleText)}</strong><small>${escapeHTML(candidate.sourceFormName)} · Entry ${candidate.sourceQuestionNumber} · ${escapeHTML(candidate.sourceDate)}</small></div>
             <button class="button button--primary" data-candidate-action="add" type="button">Add to library</button>
-          </article>
-        `).join("")
-      : '<div class="frequency-empty">Every study note is already represented, or no study notes have been logged.</div>';
+          </article>`;
+        }).join("")
+      : '<div class="frequency-empty">No unsaved study notes match this form and search.</div>';
     updateCandidateSelection();
   }
 
   function renderSavedRules() {
     const query = document.getElementById("ruleSearchInput").value.trim().toLowerCase();
-    const matches = state.rules.filter((rule) => !query || [rule.ruleText, rule.notes, kindLabel(rule.noteKind), rule.noteKind === "reasoning" ? rule.patternLabel : "", rule.id, rule.sourceNoteId, sourceLabel(rule), ...(rule.occurrences || []).map((item) => `${item.formName} ${item.noteId}`)].join(" ").toLowerCase().includes(query));
-    const active = matches.filter((rule) => rule.status !== "archived");
-    const suspended = matches.filter((rule) => rule.status === "archived");
-    document.getElementById("personalRulesList").innerHTML = active.length ? active.map(ruleCard).join("") : `<div class="frequency-empty">${query ? "No active rules match your search." : "No active rules yet. Add a study note from your logs above."}</div>`;
-    document.getElementById("suspendedRulesList").innerHTML = suspended.length ? suspended.map(ruleCard).join("") : '<div class="frequency-empty">No suspended rules match.</div>';
-    document.getElementById("ruleSearchStatus").textContent = query ? `${matches.length} of ${state.rules.length} saved rules match · ${suspended.length} suspended` : "";
-    if (query && suspended.length) document.getElementById("suspendedRulesPanel").open = true;
+    const active = visibleSavedRules("saved");
+    const suspended = visibleSavedRules("suspended");
+    document.getElementById("ruleCountBadge").textContent = `${active.length} active`;
+    document.getElementById("suspendedCountBadge").textContent = `${suspended.length} suspended`;
+    document.getElementById("personalRulesList").innerHTML = active.length ? active.map(ruleCard).join("") : '<div class="frequency-empty">No saved rules match this form and search. Add study notes from Rules found in logs.</div>';
+    document.getElementById("suspendedRulesList").innerHTML = suspended.length ? suspended.map(ruleCard).join("") : '<div class="frequency-empty">No suspended rules match this form and search.</div>';
+    const count = state.librarySection === "logs" ? visibleCandidates().length : state.librarySection === "suspended" ? suspended.length : active.length;
+    document.getElementById("ruleSearchStatus").textContent = query ? `${count} rule${count === 1 ? "" : "s"} match your search` : "";
+    updateSavedSelection();
   }
 
   function selectedCandidateIndices() {
     return [...document.querySelectorAll("#ruleCandidatesList [data-candidate-select]:checked")].map((checkbox) => Number(checkbox.closest("[data-candidate-index]").dataset.candidateIndex));
   }
 
+  function updateFormScroll() {
+    const strip = document.getElementById("ruleFormTabs");
+    document.getElementById("ruleFormsLeftBtn").disabled = strip.scrollLeft <= 1;
+    document.getElementById("ruleFormsRightBtn").disabled = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 1;
+  }
+
+  function updateSavedSelection() {
+    const toolbar = document.getElementById("savedRuleBulkActions");
+    toolbar.hidden = state.librarySection === "logs";
+    const visible = visibleSavedRules();
+    const shown = visible.filter((rule) => state.selectedRules.has(rule.id)).length;
+    const total = state.selectedRules.size;
+    const hidden = total - shown;
+    document.getElementById("savedRuleSelectionCount").textContent = `${total} selected${hidden ? ` · ${hidden} hidden by filters` : ""}`;
+    const all = document.getElementById("selectAllSavedRules");
+    all.checked = Boolean(visible.length && shown === visible.length);
+    all.indeterminate = Boolean(shown && shown < visible.length);
+    all.disabled = state.bulkBusy || !visible.length;
+    document.getElementById("savedRuleActionControls").hidden = !total;
+    document.getElementById("clearSavedRuleSelectionBtn").disabled = state.bulkBusy || !total;
+    document.getElementById("reviewSelectedRulesBtn").disabled = state.bulkBusy || !total || state.librarySection === "suspended";
+    document.getElementById("applySavedRuleBulkBtn").disabled = state.bulkBusy || !total;
+    const action = document.getElementById("savedRuleBulkAction").value;
+    document.getElementById("bulkRulePatternLabel").hidden = action !== "pattern";
+    document.getElementById("bulkRuleKindLabel").hidden = action !== "kind";
+    document.querySelectorAll("[data-saved-rule-select]").forEach((checkbox) => {
+      const row = checkbox.closest("[data-rule-id]");
+      checkbox.checked = state.selectedRules.has(row.dataset.ruleId);
+      checkbox.disabled = state.bulkBusy;
+      row.classList.toggle("is-selected", checkbox.checked);
+    });
+  }
+
+  async function applyBulkRuleAction() {
+    if (state.bulkBusy || !state.selectedRules.size) return;
+    const action = document.getElementById("savedRuleBulkAction").value;
+    // Use the API's date convention so Due today always joins its daily queue.
+    const today = new Date().toISOString().slice(0, 10);
+    const payload = action === "suspend" ? { status: "archived" } : action === "resume" ? { status: "active" } : action === "due" ? { nextReviewAt: today } : action === "pattern" ? { pattern: document.getElementById("bulkRulePattern").value } : { noteKind: document.getElementById("bulkRuleKind").value };
+    const ids = [...state.selectedRules];
+    const status = document.getElementById("savedRuleBulkStatus");
+    state.bulkBusy = true;
+    views.library.setAttribute("aria-busy", "true");
+    const locked = [...views.library.querySelectorAll("button, input, select, textarea")].filter((control) => !control.disabled);
+    locked.forEach((control) => { control.disabled = true; });
+    let changed = 0;
+    const failures = [];
+    try {
+      for (const id of ids) {
+        status.textContent = `Saving ${changed + failures.length + 1} of ${ids.length}…`;
+        try {
+          await app.apiRequest(`/api/rules/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(payload) });
+          state.selectedRules.delete(id);
+          changed += 1;
+        } catch (error) { failures.push(error.message || "Could not save this card."); }
+      }
+      const outcome = { due: "made due today", suspend: "suspended", resume: "resumed", pattern: "updated with the selected reasoning pattern", kind: "updated with the selected kind" }[action];
+      status.textContent = `${changed} card${changed === 1 ? "" : "s"} ${outcome}.${failures.length ? ` ${failures.length} unchanged and still selected. ${failures[0]}` : action === "due" && state.librarySection === "suspended" ? " Suspended cards remain suspended; resume them to review." : ""}`;
+      app.showToast(`${changed} card${changed === 1 ? "" : "s"} ${outcome}${failures.length ? `; ${failures.length} unchanged` : ""}.`);
+    } finally {
+      try { await loadLibrary(); }
+      finally {
+        state.bulkBusy = false;
+        views.library.removeAttribute("aria-busy");
+        locked.forEach((control) => { control.disabled = false; });
+        updateSavedSelection();
+      }
+    }
+  }
+
+  function persistSelectedReview() {
+    try {
+      if (state.selectedReview) sessionStorage.setItem("thundershadow:selected-review", JSON.stringify(state.selectedReview));
+      else sessionStorage.removeItem("thundershadow:selected-review");
+    } catch (_) {}
+  }
+
+  async function reviewSelectedRules() {
+    if (state.bulkBusy) return;
+    const ids = sortRules(state.rules.filter((rule) => state.selectedRules.has(rule.id) && rule.status !== "archived")).map((rule) => rule.id);
+    if (!ids.length) return;
+    state.selectedReview = { ids, reviewed: 0 };
+    state.reviewKind = "all";
+    persistSelectedReview();
+    await show("review");
+  }
+
   function updateCandidateSelection() {
     const selected = selectedCandidateIndices();
-    const total = state.candidates.length;
+    const total = visibleCandidates().length;
     document.getElementById("candidateSelectionCount").textContent = `${selected.length} selected`;
     document.getElementById("addSelectedCandidatesBtn").disabled = !selected.length;
     const selectAll = document.getElementById("selectAllCandidates");
@@ -173,8 +349,10 @@
   }
 
   async function addCandidates(indices) {
+    if (state.bulkBusy) return;
     const uniqueIndices = [...new Set(indices)].filter((index) => state.candidates[index]);
     if (!uniqueIndices.length) return;
+    const candidates = uniqueIndices.map((index) => scopedCandidate(state.candidates[index]));
     const bulkActions = document.getElementById("candidateBulkActions");
     const candidateList = document.getElementById("ruleCandidatesList");
     bulkActions.setAttribute("aria-busy", "true");
@@ -183,8 +361,7 @@
     let added = 0;
     let failed = 0;
     try {
-      for (const index of uniqueIndices) {
-        const candidate = state.candidates[index];
+      for (const candidate of candidates) {
         try {
           await app.apiRequest("/api/rules", { method: "POST", body: JSON.stringify(candidate) });
           added += 1;
@@ -324,7 +501,6 @@
             <summary>Source &amp; details</summary>
             <p class="review-source" title="${escapeHTML(rule.sourceNoteId || rule.id)}">${escapeHTML(sourceLabel(rule))}</p>
             <p class="review-card__history">${rule.occurrenceCount} occurrence${rule.occurrenceCount === 1 ? "" : "s"} · Last seen ${escapeHTML(rule.lastSeen)}</p>
-            <button class="button button--danger-ghost" type="button" data-review-action="suspend">Suspend card</button>
           </details>
         </div>
         <div class="review-card__footer">
@@ -353,21 +529,45 @@
 
   async function loadReview() {
     const load = ++state.reviewLoad;
-    const [review, settings] = await Promise.all([app.apiRequest(`/api/rules/review?limit=30${state.reviewKind === "all" ? "" : `&noteKind=${state.reviewKind}`}`), app.apiRequest("/api/settings")]);
-    if (load !== state.reviewLoad) return;
-    state.review = review;
-    document.querySelectorAll("[data-review-kind]").forEach((button) => { const selected = button.dataset.reviewKind === state.reviewKind; button.classList.toggle("is-active", selected); button.setAttribute("aria-pressed", String(selected)); });
-    applyReviewIntervals(settings);
-    document.getElementById("reviewDueBadge").textContent = `${state.review.due} due`;
-    document.getElementById("reviewSuspendedCount").textContent = String(state.review.suspended || 0);
-    document.getElementById("viewSuspendedRulesBtn").setAttribute("aria-label", `Suspended rules (${state.review.suspended || 0})`);
-    document.getElementById("reviewProgress").textContent = state.review.rules.length
-      ? `${state.reviewedThisSession} reviewed · ${state.review.due} left`
-      : state.reviewedThisSession ? `${state.reviewedThisSession} reviewed · queue complete` : "Nothing waiting today";
-    document.getElementById("reviewRulesList").innerHTML = state.review.rules.length
-      ? reviewCard(state.review.rules[0])
-      : `<section class="panel review-complete" tabindex="-1"><span class="review-complete__mark">✓</span><h2>${state.reviewKind === "all" ? "You are done for today" : `No ${state.reviewKind === "reasoning" ? "Reasoning cues" : "Clinical pearls"} due`}</h2><p class="muted">${state.reviewKind === "all" ? "Your cards return on the dates set by your review intervals." : "Choose All cards to review your other notes."}</p></section>`;
-    if (state.activeArea === "review" && !views.review.hidden) document.querySelector("#reviewRulesList .review-card__content, #reviewRulesList .review-complete")?.focus({ preventScroll: true });
+    const list = document.getElementById("reviewRulesList");
+    list.setAttribute("aria-busy", "true");
+    list.innerHTML = '<p class="muted" role="status">Loading cards…</p>';
+    try {
+      const selected = state.selectedReview;
+      const [review, settings] = await Promise.all([selected
+        ? app.apiRequest("/api/rules/review-selection", { method: "POST", body: JSON.stringify({ ruleIds: selected.ids }) })
+        : app.apiRequest(`/api/rules/review?limit=30${state.reviewKind === "all" ? "" : `&noteKind=${state.reviewKind}`}`), app.apiRequest("/api/settings")]);
+      if (load !== state.reviewLoad) return;
+      if (selected) {
+        selected.ids = review.rules.map((rule) => rule.id);
+        persistSelectedReview();
+        review.totalSelected = review.rules.length;
+        review.rules = review.rules.filter((rule) => state.reviewKind === "all" || rule.noteKind === state.reviewKind);
+        review.due = review.rules.length;
+      }
+      state.review = review;
+      document.querySelectorAll("[data-review-kind]").forEach((button) => { const selected = button.dataset.reviewKind === state.reviewKind; button.classList.toggle("is-active", selected); button.setAttribute("aria-pressed", String(selected)); });
+      applyReviewIntervals(settings);
+      document.getElementById("reviewHeading").textContent = selected ? "Selected review" : "Daily review";
+      views.review.classList.toggle("has-selected-review", Boolean(selected));
+      document.getElementById("selectedReviewBar").hidden = !selected;
+      document.getElementById("selectedReviewStatus").textContent = selected ? `${selected.reviewed} reviewed · ${review.totalSelected} remaining in your selection. Ratings save your next due dates.` : "";
+      document.getElementById("reviewDueBadge").textContent = `${state.review.due} ${selected ? "selected" : "due"}`;
+      document.getElementById("reviewSuspendedCount").textContent = String(state.review.suspended || 0);
+      document.getElementById("viewSuspendedRulesBtn").setAttribute("aria-label", `Suspended rules (${state.review.suspended || 0})`);
+      document.getElementById("reviewProgress").textContent = state.review.rules.length
+        ? `${selected ? selected.reviewed : state.reviewedThisSession} reviewed · ${state.review.due} left${selected && state.reviewKind !== "all" ? " in this filter" : ""}`
+        : selected ? `${selected.reviewed} reviewed · ${review.totalSelected ? "choose All cards to continue" : "selection complete"}` : state.reviewedThisSession ? `${state.reviewedThisSession} reviewed · queue complete` : "Nothing waiting today";
+      document.getElementById("reviewRulesList").innerHTML = state.review.rules.length
+        ? reviewCard(state.review.rules[0])
+        : `<section class="panel review-complete" tabindex="-1"><span class="review-complete__mark">✓</span><h2>${selected ? review.totalSelected ? "No selected cards in this filter" : "Selection complete" : state.reviewKind === "all" ? "You are done for today" : `No ${state.reviewKind === "reasoning" ? "Broad Patterns" : "Clinical Patterns"} due`}</h2><p class="muted">${selected ? review.totalSelected ? "Choose All cards to continue your selection." : "Return to daily review or choose another selection in the library." : state.reviewKind === "all" ? "Your cards return on the dates set by your review intervals." : "Choose All cards to review your other notes."}</p></section>`;
+      if (state.activeArea === "review" && !views.review.hidden) document.querySelector("#reviewRulesList .review-card__content, #reviewRulesList .review-complete")?.focus({ preventScroll: true });
+    } catch (error) {
+      if (load === state.reviewLoad) list.innerHTML = `<section class="panel review-complete"><h2>Cards could not be loaded</h2><p class="muted">${escapeHTML(error.message || "Open Active Rules to try again.")}</p></section>`;
+      throw error;
+    } finally {
+      if (load === state.reviewLoad) list.removeAttribute("aria-busy");
+    }
   }
 
   async function submitReview(ruleId, response) {
@@ -378,6 +578,11 @@
     try {
       const rule = await app.apiRequest(`/api/rules/${encodeURIComponent(ruleId)}/reviews`, { method: "POST", body: JSON.stringify({ response }) });
       state.reviewedThisSession += 1;
+      if (state.selectedReview) {
+        state.selectedReview.ids = state.selectedReview.ids.filter((id) => id !== ruleId);
+        state.selectedReview.reviewed += 1;
+        persistSelectedReview();
+      }
       app.showToast(`${labelResponse(response)} · next review ${rule.nextReviewAt}.`);
       await loadReview();
     } finally {
@@ -395,6 +600,10 @@
     list.querySelectorAll("button").forEach((button) => { button.disabled = true; });
     try {
       await app.apiRequest(`/api/rules/${encodeURIComponent(ruleId)}`, { method: "PUT", body: JSON.stringify({ status: "archived" }) });
+      if (state.selectedReview) {
+        state.selectedReview.ids = state.selectedReview.ids.filter((id) => id !== ruleId);
+        persistSelectedReview();
+      }
       app.showToast("Rule suspended. You can resume it from the Rule Library.");
       await loadReview();
     } finally {
@@ -554,7 +763,7 @@
   async function handleRuleListClick(event) {
     const button = event.target.closest("[data-rule-action]");
     const card = event.target.closest("[data-rule-id]");
-    if (!button || !card) return;
+    if (!button || !card || state.bulkBusy) return;
     try {
       if (button.dataset.ruleAction === "save") await updateRule(card);
       if (button.dataset.ruleAction === "suspend") await updateRule(card, "archived");
@@ -567,12 +776,90 @@
       }
     } catch (error) { app.showToast(error.message); }
   }
-  document.getElementById("ruleSearchInput").addEventListener("input", renderSavedRules);
-  for (const listId of ["personalRulesList", "suspendedRulesList"]) document.getElementById(listId).addEventListener("change", (event) => {
-    if (event.target.matches(".rule-kind")) event.target.closest("[data-rule-id]").querySelector(".rule-pattern-label").hidden = event.target.value === "clinical";
+  document.getElementById("ruleSearchInput").addEventListener("input", () => { renderSavedRules(); renderCandidates(); });
+  document.getElementById("ruleSortSelect").addEventListener("change", () => { state.selectionAnchor = null; renderSavedRules(); renderCandidates(); });
+  document.getElementById("ruleKindTabs").addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-library-kind]");
+    if (!tab || state.bulkBusy) return;
+    state.libraryKinds[state.librarySection] = tab.dataset.libraryKind;
+    state.selectionAnchor = null;
+    renderFormTabs();
+    renderSavedRules();
+    renderCandidates();
+    views.library.querySelector(".rule-library-panels").scrollTop = 0;
+  });
+  document.getElementById("bulkRulePattern").innerHTML = patternOptions("");
+  document.getElementById("savedRuleBulkAction").addEventListener("change", updateSavedSelection);
+  document.getElementById("selectAllSavedRules").addEventListener("change", (event) => {
+    if (state.bulkBusy) return;
+    document.getElementById("savedRuleBulkStatus").textContent = "";
+    for (const rule of visibleSavedRules()) {
+      if (event.target.checked) state.selectedRules.add(rule.id);
+      else state.selectedRules.delete(rule.id);
+    }
+    updateSavedSelection();
+  });
+  document.getElementById("clearSavedRuleSelectionBtn").addEventListener("click", () => { state.selectedRules.clear(); state.selectionAnchor = null; document.getElementById("savedRuleBulkStatus").textContent = ""; updateSavedSelection(); });
+  document.getElementById("applySavedRuleBulkBtn").addEventListener("click", () => applyBulkRuleAction().catch((error) => app.showToast(error.message)));
+  document.getElementById("reviewSelectedRulesBtn").addEventListener("click", () => reviewSelectedRules().catch((error) => app.showToast(error.message)));
+  document.getElementById("exitSelectedReviewBtn").addEventListener("click", () => {
+    if (document.getElementById("reviewRulesList").getAttribute("aria-busy") === "true") return;
+    state.selectedReview = null;
+    persistSelectedReview();
+    loadReview().catch((error) => app.showToast(error.message));
+  });
+  const formStrip = document.getElementById("ruleFormTabs");
+  formStrip.addEventListener("scroll", updateFormScroll, { passive: true });
+  window.addEventListener("resize", updateFormScroll);
+  if (window.ResizeObserver) new ResizeObserver(updateFormScroll).observe(formStrip);
+  for (const [id, direction] of [["ruleFormsLeftBtn", -1], ["ruleFormsRightBtn", 1]]) document.getElementById(id).addEventListener("click", () => {
+    formStrip.scrollBy({ left: direction * Math.max(180, formStrip.clientWidth * .7), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  });
+  document.getElementById("ruleLibraryTabs").addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-rule-section]");
+    if (tab) selectLibrarySection(tab.dataset.ruleSection);
+  });
+  document.getElementById("ruleFormTabs").addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-rule-form]");
+    if (!tab || state.bulkBusy) return;
+    state.libraryForms[state.librarySection] = tab.dataset.ruleForm;
+    document.querySelectorAll("[data-rule-form]").forEach((item) => {
+      const selected = item === tab;
+      item.setAttribute("aria-selected", String(selected));
+      item.tabIndex = selected ? 0 : -1;
+    });
+    renderSavedRules();
+    renderCandidates();
+    views.library.querySelector(".rule-library-panels").scrollTop = 0;
+  });
+  for (const id of ["ruleLibraryTabs", "ruleKindTabs", "ruleFormTabs"]) document.getElementById(id).addEventListener("keydown", (event) => {
+    if (state.bulkBusy) return;
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = [...event.currentTarget.querySelectorAll("[role='tab']")];
+    const index = tabs.indexOf(event.target);
+    if (index < 0) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].click();
+    const target = id === "ruleFormTabs" ? document.querySelector(`[data-rule-form][aria-selected="true"]`) : tabs[next];
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
   document.getElementById("personalRulesList").addEventListener("click", handleRuleListClick);
   document.getElementById("suspendedRulesList").addEventListener("click", handleRuleListClick);
+  for (const id of ["personalRulesList", "suspendedRulesList"]) document.getElementById(id).addEventListener("click", (event) => {
+    const checkbox = event.target.closest("[data-saved-rule-select]");
+    if (!checkbox || state.bulkBusy) return;
+    document.getElementById("savedRuleBulkStatus").textContent = "";
+    const ruleId = checkbox.closest("[data-rule-id]").dataset.ruleId;
+    const ids = visibleSavedRules().map((rule) => rule.id);
+    const anchor = ids.indexOf(state.selectionAnchor);
+    const index = ids.indexOf(ruleId);
+    const range = event.shiftKey && anchor >= 0 ? ids.slice(Math.min(anchor, index), Math.max(anchor, index) + 1) : [ruleId];
+    for (const id of range) { if (checkbox.checked) state.selectedRules.add(id); else state.selectedRules.delete(id); }
+    state.selectionAnchor = ruleId;
+    updateSavedSelection();
+  });
   document.getElementById("ruleCandidatesList").addEventListener("click", (event) => {
     const button = event.target.closest("[data-candidate-action='add']");
     const card = event.target.closest("[data-candidate-index]");
@@ -586,7 +873,7 @@
     updateCandidateSelection();
   });
   document.getElementById("addSelectedCandidatesBtn").addEventListener("click", () => addCandidates(selectedCandidateIndices()).catch((error) => app.showToast(error.message)));
-  document.getElementById("addAllCandidatesBtn").addEventListener("click", () => addCandidates(state.candidates.map((_, index) => index)).catch((error) => app.showToast(error.message)));
+  document.getElementById("addAllCandidatesBtn").addEventListener("click", () => addCandidates(visibleCandidates().map(({ index }) => index)).catch((error) => app.showToast(error.message)));
   document.getElementById("reviewRulesList").addEventListener("click", (event) => {
     const responseButton = event.target.closest("[data-review-response]");
     const suspendButton = event.target.closest("[data-review-action='suspend']");
@@ -630,14 +917,10 @@
   document.getElementById("reviewIntervalForm").addEventListener("submit", (event) => saveReviewIntervals(event).catch((error) => app.showToast(error.message)));
   document.getElementById("viewSuspendedRulesBtn").addEventListener("click", async () => {
     await show("library");
-    const panel = document.getElementById("suspendedRulesPanel");
-    panel.open = true;
-    const scroller = panel.closest(".v3-scroll");
-    if (scroller) {
-      const panelTop = panel.getBoundingClientRect().top;
-      const scrollerTop = scroller.getBoundingClientRect().top;
-      scroller.scrollTo({ top: scroller.scrollTop + panelTop - scrollerTop - 8, behavior: "smooth" });
-    }
+    state.libraryForms.suspended = "all";
+    state.libraryKinds.suspended = "all";
+    document.getElementById("ruleSearchInput").value = "";
+    selectLibrarySection("suspended");
   });
   document.getElementById("applyAnalysisFilters").addEventListener("click", () => loadAnalysis().catch((error) => app.showToast(error.message)));
   document.getElementById("clearAnalysisFilters").addEventListener("click", () => {

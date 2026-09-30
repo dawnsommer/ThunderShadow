@@ -425,7 +425,7 @@
 
   function ruleIdentity(item) {
     const kind = canonicalNoteKind(item.noteKind, item.pattern);
-    return `${kind}\n${kind === "reasoning" ? canonicalPattern(item.pattern) : ""}\n${normalizedRuleText(item.ruleText ?? item.reasoningNote)}`;
+    return `${kind}\n${canonicalPattern(item.pattern)}\n${normalizedRuleText(item.ruleText ?? item.reasoningNote)}`;
   }
 
   function ruleOccurrences(rule, forms) {
@@ -485,8 +485,11 @@
       for (const entry of form.entries || []) {
         if (entry.deleted || !String(entry.reasoningNote || "").trim()) continue;
         const key = ruleIdentity(entry);
-        if (savedSources.has(entry.noteId) || known.has(key) || candidates.some((item) => item.key === key)) continue;
-        candidates.push({ key, noteKind: entry.noteKind, sourceNoteId: entry.noteId, pattern: canonicalPattern(entry.pattern), patternLabel: PATTERN_LABELS.get(canonicalPattern(entry.pattern)), ruleText: entry.reasoningNote, sourceFormId: form.id, sourceFormName: form.name, sourceQuestionNumber: entry.entryNumber, sourceDate: form.date });
+        if (savedSources.has(entry.noteId) || known.has(key)) continue;
+        const occurrence = { formId: form.id, formName: form.name, date: form.date, noteId: entry.noteId, entryNumber: entry.entryNumber };
+        const prior = candidates.find((item) => item.key === key);
+        if (prior) { prior.occurrences.push(occurrence); continue; }
+        candidates.push({ key, occurrences: [occurrence], noteKind: entry.noteKind, sourceNoteId: entry.noteId, pattern: canonicalPattern(entry.pattern), patternLabel: PATTERN_LABELS.get(canonicalPattern(entry.pattern)), ruleText: entry.reasoningNote, sourceFormId: form.id, sourceFormName: form.name, sourceQuestionNumber: entry.entryNumber, sourceDate: form.date });
       }
     }
     return candidates.sort((a, b) => b.sourceDate.localeCompare(a.sourceDate)).map(({ key, ...rest }) => rest);
@@ -560,14 +563,14 @@
     const headers = ["Form", "Date", "Entry_Number", "Error_Code", "Rule_Pattern", "Speed_Flags", "Reasoning_Note", "Note_Type", "Form_ID", "Note_ID"];
     const rows = (form.entries || []).filter(isLogged).sort((a, b) => a.entryNumber - b.entryNumber).map((entry) => [
       form.name, form.date, entry.entryNumber, entry.errorCode, PATTERN_LABELS.get(entry.pattern) || "",
-      (entry.speedFlags || []).map((flag) => SPEED_LABELS.get(flag) || flag).join(" | "), tsvEscape(entry.reasoningNote, true), entry.noteKind === "reasoning" ? "Reasoning cue" : "Clinical pearl", form.id, noteIdFor(form.id, entry.entryNumber)
+      (entry.speedFlags || []).map((flag) => SPEED_LABELS.get(flag) || flag).join(" | "), tsvEscape(entry.reasoningNote, true), entry.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern", form.id, noteIdFor(form.id, entry.entryNumber)
     ].map((value, index) => index === 6 ? value : tsvEscape(value)).join("\t"));
     return [headers.join("\t"), ...rows].join("\n");
   }
   function allFormsToTsv(forms) { return ["Form\tDate\tEntry_Number\tError_Code\tRule_Pattern\tSpeed_Flags\tReasoning_Note\tNote_Type\tForm_ID\tNote_ID", ...forms.flatMap((form) => formToTsv(form).split("\n").slice(1))].join("\n"); }
   function activeRulesTsv(rules) {
     const headers = ["Rule_ID", "Canonical_Pattern", "Rule_Text", "Status", "Occurrence_Count", "First_Seen", "Last_Seen", "Next_Review", "Notes", "Note_Type", "Source_Form_ID", "Source_Form", "Source_Entry", "Source_Note_ID", "All_Sources"];
-    const rows = rules.filter((rule) => rule.status !== "archived").map((rule) => [rule.id, rule.patternLabel, rule.ruleText, rule.status, rule.occurrenceCount, rule.firstSeen, rule.lastSeen, rule.nextReviewAt || "", rule.notes, rule.noteKind === "reasoning" ? "Reasoning cue" : "Clinical pearl", rule.sourceFormId, rule.sourceFormName, rule.sourceQuestionNumber, rule.sourceNoteId, JSON.stringify(rule.occurrences || [])].map((value) => tsvEscape(value)).join("\t"));
+    const rows = rules.filter((rule) => rule.status !== "archived").map((rule) => [rule.id, rule.patternLabel, rule.ruleText, rule.status, rule.occurrenceCount, rule.firstSeen, rule.lastSeen, rule.nextReviewAt || "", rule.notes, rule.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern", rule.sourceFormId, rule.sourceFormName, rule.sourceQuestionNumber, rule.sourceNoteId, JSON.stringify(rule.occurrences || [])].map((value) => tsvEscape(value)).join("\t"));
     return [headers.join("\t"), ...rows].join("\n");
   }
   function analysisMarkdown(analytics, rules) {
@@ -1057,6 +1060,14 @@
       }
       if (pathname.endsWith("/api/rules/review") && method === "GET") {
         const limit = Math.max(1, Math.min(30, Number(url.searchParams.get("limit")) || 10)), today = nowISO().slice(0, 10); const allRules = await allHydratedRules(); const due = allRules.filter((rule) => (!url.searchParams.get("noteKind") || rule.noteKind === url.searchParams.get("noteKind")) && rule.status !== "archived" && (!rule.nextReviewAt || rule.nextReviewAt <= today)).sort((a, b) => String(a.nextReviewAt || "").localeCompare(String(b.nextReviewAt || "")) || b.occurrenceCount - a.occurrenceCount || b.lastSeen.localeCompare(a.lastSeen)); return jsonResponse({ date: today, due: due.length, suspended: allRules.filter((rule) => rule.status === "archived").length, rules: due.slice(0, limit) });
+      }
+      if (pathname.endsWith("/api/rules/review-selection") && method === "POST") {
+        const body = await parseBody(options);
+        if (!Array.isArray(body.ruleIds) || body.ruleIds.some((id) => typeof id !== "string")) return errorResponse(new Error("Select saved rule IDs to review."), 400);
+        const allRules = await allHydratedRules();
+        const byId = new Map(allRules.filter((rule) => rule.status !== "archived").map((rule) => [rule.id, rule]));
+        const rules = [...new Set(body.ruleIds)].map((id) => byId.get(id)).filter(Boolean);
+        return jsonResponse({ date: nowISO().slice(0, 10), due: rules.length, suspended: allRules.filter((rule) => rule.status === "archived").length, rules });
       }
       if (pathname.endsWith("/api/rules") && method === "POST") {
         const body = await parseBody(options); let source = null, sourceForm = null; if (body.sourceFormId && body.sourceQuestionNumber) { const form = await get(STORES.forms, body.sourceFormId); sourceForm = form; source = form?.entries?.find((entry) => entry.entryNumber === Number(body.sourceQuestionNumber)); }
