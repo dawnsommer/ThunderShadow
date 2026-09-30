@@ -16,7 +16,7 @@
     try { return localStorage.getItem(ACTIVE_DB_KEY) || DB_NAME; } catch { return DB_NAME; }
   })();
   const STORES = { forms: "forms", rules: "rules", settings: "settings", backups: "backups", meta: "meta" };
-  const BACKUP_VERSION = 6;
+  const BACKUP_VERSION = 7;
   const SCHEMA_VERSION = 1;
   const BACKUP_RETENTION = 14;
   const BACKUP_INTERVAL_HOURS = 24;
@@ -24,8 +24,9 @@
   const MAX_ENTRY_NUMBER = 2147483647;
   const ZOOM_LEVELS = new Set([80, 85, 90, 95, 100, 105, 110, 115, 120]);
   const DEFAULT_REVIEW_INTERVALS = Object.freeze({ again: 1, hard: 3, good: 7, easy: 30 });
+  const DEFAULT_REVIEW_SHORTCUTS = Object.freeze({ again: "1", hard: "2", good: "3", easy: "4", quickGood: "Space" });
   const ERROR_CODES = new Set(["1", "2", "3", "4", "5", "6", "7"]);
-  const { PATTERNS, SPEED_FLAGS, PATTERN_VALUES, SPEED_VALUES, canonicalPattern, canonicalSpeedFlags } = window.ThunderShadowReasoning;
+  const { PATTERNS, SPEED_FLAGS, PATTERN_VALUES, SPEED_VALUES, canonicalPattern, canonicalSpeedFlags, canonicalNoteKind, noteIdFor } = window.ThunderShadowReasoning;
   const { calculateAnalytics, findRuleDuplicates, nextReviewSchedule, normalizedRuleText } = window.ThunderShadowAnalytics;
   const PATTERN_LABELS = new Map(PATTERNS.map((item) => [item.value, `${item.code} — ${item.label}`]));
   const SPEED_LABELS = new Map(SPEED_FLAGS.map((item) => [item.value, `${item.code} — ${item.label}`]));
@@ -299,8 +300,26 @@
     return output;
   }
 
+  function normalizeReviewShortcuts(input, strict = false) {
+    const source = input && typeof input === "object" ? input : {};
+    const output = {};
+    for (const [key, fallback] of Object.entries(DEFAULT_REVIEW_SHORTCUTS)) {
+      const raw = String(source[key] ?? fallback);
+      const value = raw === " " || raw.toLowerCase() === "space" ? "Space" : raw.toLowerCase();
+      if (/^[a-z0-9]$/.test(value) || value === "Space" || (key === "quickGood" && value === "none")) output[key] = value;
+      else if (strict) throw new Error("Use one letter, one number, or Space for each shortcut.");
+      else return { ...DEFAULT_REVIEW_SHORTCUTS };
+    }
+    const keys = Object.values(output).filter((value) => value !== "none");
+    if (new Set(keys).size !== keys.length) {
+      if (strict) throw new Error("Each review shortcut must use a different key.");
+      return { ...DEFAULT_REVIEW_SHORTCUTS };
+    }
+    return output;
+  }
+
   function blankEntry(number) {
-    return { number, entryNumber: number, originalQuestionNumber: null, errorCode: "", pattern: "", speedFlags: [], reasoningNote: "", manualRule: "", deleted: false, createdAt: null, updatedAt: null, revision: 0 };
+    return { number, entryNumber: number, originalQuestionNumber: null, errorCode: "", pattern: "", speedFlags: [], reasoningNote: "", manualRule: "", noteKind: "clinical", deleted: false, createdAt: null, updatedAt: null, revision: 0 };
   }
 
   function isLogged(entry) {
@@ -324,6 +343,7 @@
       pattern: PATTERN_VALUES.has(pattern) ? pattern : "",
       speedFlags: [...new Set(speedFlags)],
       reasoningNote,
+      noteKind: canonicalNoteKind(input?.noteKind, pattern),
       manualRule: reasoningNote,
       deleted: Boolean(input?.deleted),
       revision: Number.isSafeInteger(input?.revision) && input.revision >= 0 ? input.revision : 0,
@@ -356,6 +376,7 @@
     }
     const sourceEntries = input.entries ?? input.questions ?? existing?.entries ?? [];
     const entries = Array.isArray(sourceEntries) ? sourceEntries.map((entry, index) => normalizeEntry(entry, Number(entry?.entryNumber || entry?.number || index + 1))).sort((a, b) => a.entryNumber - b.entryNumber) : [];
+    for (const entry of entries) entry.noteId = noteIdFor(id, entry.entryNumber);
     const maxFromEntries = entries.length ? Math.max(...entries.map((entry) => entry.entryNumber)) : 0;
     const maxEntryNumber = Math.max(Number(existing?.maxEntryNumber || 0), Number(input.maxEntryNumber || 0), maxFromEntries);
     const currentEntry = Math.max(1, Number(input.currentEntry ?? input.currentQuestion ?? existing?.currentEntry ?? entries.at(-1)?.entryNumber ?? 1));
@@ -374,7 +395,8 @@
     if (!input || typeof input !== "object") throw new Error("Rule payload must be an object.");
     const id = String(existing?.id || input.id || uuid());
     const pattern = canonicalPattern(input.pattern ?? existing?.pattern ?? "");
-    if (!PATTERN_VALUES.has(pattern)) throw new Error("Canonical rule pattern is not recognized.");
+    const noteKind = canonicalNoteKind(input.noteKind ?? existing?.noteKind, pattern);
+    if (pattern && !PATTERN_VALUES.has(pattern)) throw new Error("Canonical rule pattern is not recognized.");
     const ruleText = String(input.ruleText ?? existing?.ruleText ?? "").trim();
     if (!ruleText || ruleText.length > 12000) throw new Error("Rule text must contain 1–12000 characters.");
     const statuses = new Set(["new", "active", "improving", "mastered", "archived"]);
@@ -383,7 +405,10 @@
     const notes = String(input.notes ?? existing?.notes ?? "").slice(0, 12000);
     const createdAt = existing?.createdAt || input.createdAt || nowISO();
     return {
-      id, pattern, patternLabel: PATTERN_LABELS.get(pattern), ruleText,
+      id, pattern, noteKind, patternLabel: PATTERN_LABELS.get(pattern) || "No pattern", ruleText,
+      sourceFormName: input.sourceFormName ?? existing?.sourceFormName ?? null,
+      sourceNoteId: input.sourceNoteId ?? existing?.sourceNoteId ?? null,
+      metadataVersion: Number(input.metadataVersion ?? existing?.metadataVersion ?? 0),
       sourceFormId: input.sourceFormId ?? existing?.sourceFormId ?? null,
       sourceQuestionNumber: input.sourceQuestionNumber ?? existing?.sourceQuestionNumber ?? null,
       status, notes, nextReviewAt: input.nextReviewAt ?? existing?.nextReviewAt ?? nowISO().slice(0, 10),
@@ -396,28 +421,42 @@
 
   function formSort(forms) { return forms.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))); }
   async function allForms() { return formSort((await getAll(STORES.forms)).map((form) => normalizeForm(form, form))); }
-  async function allStoredRules() { return (await getAll(STORES.rules)).map((rule) => deepClone(rule)); }
+  async function allStoredRules() { return (await getAll(STORES.rules)).map((rule) => normalizeRule(rule, rule)); }
+
+  function ruleIdentity(item) {
+    const kind = canonicalNoteKind(item.noteKind, item.pattern);
+    return `${kind}\n${kind === "reasoning" ? canonicalPattern(item.pattern) : ""}\n${normalizedRuleText(item.ruleText ?? item.reasoningNote)}`;
+  }
 
   function ruleOccurrences(rule, forms) {
-    const identities = [{ pattern: rule.pattern, text: normalizedRuleText(rule.ruleText) }, ...(rule.aliases || []).map((alias) => ({ pattern: canonicalPattern(alias.pattern), text: normalizedRuleText(alias.ruleText) }))];
+    const identities = new Set([ruleIdentity(rule), ...(rule.aliases || []).map(ruleIdentity)]);
     const matches = [];
     for (const form of forms) {
       for (const entry of form.entries || []) {
         if (entry.deleted || !String(entry.reasoningNote || "").trim()) continue;
-        const normalized = normalizedRuleText(entry.reasoningNote);
-        if (identities.some((identity) => identity.pattern === canonicalPattern(entry.pattern) && identity.text === normalized)) {
-          matches.push({ formId: form.id, formName: form.name, date: form.date, questionNumber: entry.entryNumber, entryNumber: entry.entryNumber });
+        const directSource = form.id === rule.sourceFormId && entry.entryNumber === Number(rule.sourceQuestionNumber);
+        const sourceTextMatches = [rule.ruleText, ...(rule.aliases || []).map((alias) => alias.ruleText)].some((text) => normalizedRuleText(text) === normalizedRuleText(entry.reasoningNote));
+        if ((directSource && sourceTextMatches) || identities.has(ruleIdentity(entry))) {
+          matches.push({ formId: form.id, formName: form.name, date: form.date, noteId: noteIdFor(form.id, entry.entryNumber), questionNumber: entry.entryNumber, entryNumber: entry.entryNumber });
         }
       }
     }
     return matches.sort((a, b) => a.date.localeCompare(b.date) || a.entryNumber - b.entryNumber);
   }
 
-  async function hydrateRule(rule, forms = null) {
+  async function hydrateRule(rawRule, forms = null) {
+    const rule = normalizeRule(rawRule, rawRule);
     const all = forms || await allForms();
     const occurrences = ruleOccurrences(rule, all);
+    const sourceForm = all.find((form) => form.id === rule.sourceFormId);
+    const sourceEntry = sourceForm?.entries.find((entry) => entry.entryNumber === Number(rule.sourceQuestionNumber));
+    const source = sourceEntry ? { formId: sourceForm.id, formName: sourceForm.name, entryNumber: sourceEntry.entryNumber, noteId: noteIdFor(sourceForm.id, sourceEntry.entryNumber) } : (!rule.sourceFormId ? occurrences[0] : null);
     return {
-      ...deepClone(rule), patternLabel: PATTERN_LABELS.get(rule.pattern), occurrenceCount: occurrences.length,
+      ...rule, sourceFormId: rule.sourceFormId || source?.formId || null,
+      sourceQuestionNumber: rule.sourceQuestionNumber || source?.entryNumber || null,
+      sourceFormName: source?.formName || sourceForm?.name || rule.sourceFormName || null,
+      sourceNoteId: source?.noteId || rule.sourceNoteId || (rule.sourceFormId && rule.sourceQuestionNumber ? noteIdFor(rule.sourceFormId, rule.sourceQuestionNumber) : null),
+      occurrenceCount: occurrences.length,
       firstSeen: occurrences[0]?.date || String(rule.createdAt || nowISO()).slice(0, 10),
       lastSeen: occurrences.at(-1)?.date || String(rule.createdAt || nowISO()).slice(0, 10),
       occurrences
@@ -436,17 +475,18 @@
     const forms = await allForms();
     const rules = await allStoredRules();
     const known = new Set();
+    const savedSources = new Set(rules.flatMap((rule) => ruleOccurrences(rule, forms).map((source) => source.noteId)));
     for (const rule of rules) {
-      known.add(`${rule.pattern}\n${normalizedRuleText(rule.ruleText)}`);
-      for (const alias of rule.aliases || []) known.add(`${canonicalPattern(alias.pattern)}\n${normalizedRuleText(alias.ruleText)}`);
+      known.add(ruleIdentity(rule));
+      for (const alias of rule.aliases || []) known.add(ruleIdentity(alias));
     }
     const candidates = [];
     for (const form of forms) {
       for (const entry of form.entries || []) {
-        if (entry.deleted || !entry.pattern || !String(entry.reasoningNote || "").trim()) continue;
-        const key = `${canonicalPattern(entry.pattern)}\n${normalizedRuleText(entry.reasoningNote)}`;
-        if (known.has(key) || candidates.some((item) => item.key === key)) continue;
-        candidates.push({ key, pattern: canonicalPattern(entry.pattern), patternLabel: PATTERN_LABELS.get(canonicalPattern(entry.pattern)), ruleText: entry.reasoningNote, sourceFormId: form.id, sourceFormName: form.name, sourceQuestionNumber: entry.entryNumber, sourceDate: form.date });
+        if (entry.deleted || !String(entry.reasoningNote || "").trim()) continue;
+        const key = ruleIdentity(entry);
+        if (savedSources.has(entry.noteId) || known.has(key) || candidates.some((item) => item.key === key)) continue;
+        candidates.push({ key, noteKind: entry.noteKind, sourceNoteId: entry.noteId, pattern: canonicalPattern(entry.pattern), patternLabel: PATTERN_LABELS.get(canonicalPattern(entry.pattern)), ruleText: entry.reasoningNote, sourceFormId: form.id, sourceFormName: form.name, sourceQuestionNumber: entry.entryNumber, sourceDate: form.date });
       }
     }
     return candidates.sort((a, b) => b.sourceDate.localeCompare(a.sourceDate)).map(({ key, ...rest }) => rest);
@@ -454,10 +494,58 @@
 
   async function duplicateMatches(candidate, rules = null, excludeId = null) {
     const hydrated = rules || await allHydratedRules();
-    const comparisons = hydrated.filter((rule) => !excludeId || rule.id !== excludeId).flatMap((rule) => [rule, ...(rule.aliases || []).map((alias) => ({ ...rule, pattern: canonicalPattern(alias.pattern), ruleText: alias.ruleText }))]);
+    const comparisons = hydrated.filter((rule) => !excludeId || rule.id !== excludeId).flatMap((rule) => [rule, ...(rule.aliases || []).map((alias) => ({ ...rule, noteKind: canonicalNoteKind(alias.noteKind, alias.pattern), pattern: canonicalPattern(alias.pattern), ruleText: alias.ruleText }))]);
     const matches = findRuleDuplicates(candidate, comparisons);
     const unique = (items) => [...new Map(items.map((item) => [item.id, item])).values()];
     return { exact: unique(matches.exact), near: unique(matches.near) };
+  }
+
+  async function noteUpgradeStatus() {
+    const forms = await getAll(STORES.forms), rules = await getAll(STORES.rules);
+    const entries = forms.flatMap((form) => form.entries || form.questions || []).filter((entry) => String(entry.reasoningNote ?? entry.manualRule ?? "").trim() && (!entry.noteId || !["clinical", "reasoning"].includes(entry.noteKind))).length;
+    return { entries, rules: rules.filter((rule) => !rule.metadataVersion).length };
+  }
+
+  async function upgradeNoteMetadata() {
+    const pending = await noteUpgradeStatus();
+    if (!pending.entries && !pending.rules) return { entries: 0, rules: 0 };
+    const safety = emergencyStorage ? null : await createSnapshot("safety");
+    let entriesUpdated = 0, rulesUpdated = 0;
+    for (const raw of await getAll(STORES.forms)) {
+      let changed = false;
+      await updateRecordAtomically(STORES.forms, raw.id, (stored) => {
+        if (!stored) return null;
+        const original = stored.entries || stored.questions || [];
+        const form = normalizeForm(stored, stored);
+        for (const entry of form.entries) {
+          const old = original.find((item) => Number(item.entryNumber || item.number) === entry.entryNumber);
+          if (String(entry.reasoningNote || "").trim() && (!old?.noteId || !["clinical", "reasoning"].includes(old?.noteKind))) {
+            entry.updatedAt = nowISO(); entry.revision += 1; entriesUpdated += 1; changed = true;
+          }
+        }
+        if (!changed) return stored;
+        form.updatedAt = nowISO(); form.revision += 1;
+        return form;
+      });
+      if (changed) notifyMutation("form.note-metadata", { formId: raw.id });
+    }
+    const forms = await allForms();
+    for (const raw of await getAll(STORES.rules)) {
+      let changed = false;
+      await updateRecordAtomically(STORES.rules, raw.id, (stored) => {
+        if (!stored || stored.metadataVersion) return stored;
+        const rule = normalizeRule(stored, stored), matches = ruleOccurrences(rule, forms);
+        const source = matches.find((item) => item.formId === rule.sourceFormId && item.entryNumber === Number(rule.sourceQuestionNumber)) || (!rule.sourceFormId ? matches[0] : null);
+        if (source) {
+          rule.sourceFormId = source.formId; rule.sourceFormName = source.formName;
+          rule.sourceQuestionNumber = source.entryNumber; rule.sourceNoteId = source.noteId;
+        } else if (rule.sourceFormId && rule.sourceQuestionNumber) { rule.sourceNoteId = noteIdFor(rule.sourceFormId, rule.sourceQuestionNumber); rule.sourceFormName = forms.find((form) => form.id === rule.sourceFormId)?.name || rule.sourceFormName; }
+        rule.metadataVersion = 1; rule.updatedAt = nowISO(); changed = true; rulesUpdated += 1;
+        return rule;
+      });
+      if (changed) notifyMutation("rule.note-metadata", { ruleId: raw.id });
+    }
+    return { entries: entriesUpdated, rules: rulesUpdated, safetyBackup: safety?.filename || null };
   }
 
   function tsvEscape(value, preserveLines = false) {
@@ -469,17 +557,17 @@
     return safe || "ThunderShadow";
   }
   function formToTsv(form) {
-    const headers = ["Form", "Date", "Entry_Number", "Error_Code", "Rule_Pattern", "Speed_Flags", "Reasoning_Note"];
+    const headers = ["Form", "Date", "Entry_Number", "Error_Code", "Rule_Pattern", "Speed_Flags", "Reasoning_Note", "Note_Type", "Form_ID", "Note_ID"];
     const rows = (form.entries || []).filter(isLogged).sort((a, b) => a.entryNumber - b.entryNumber).map((entry) => [
       form.name, form.date, entry.entryNumber, entry.errorCode, PATTERN_LABELS.get(entry.pattern) || "",
-      (entry.speedFlags || []).map((flag) => SPEED_LABELS.get(flag) || flag).join(" | "), tsvEscape(entry.reasoningNote, true)
+      (entry.speedFlags || []).map((flag) => SPEED_LABELS.get(flag) || flag).join(" | "), tsvEscape(entry.reasoningNote, true), entry.noteKind === "reasoning" ? "Reasoning cue" : "Clinical pearl", form.id, noteIdFor(form.id, entry.entryNumber)
     ].map((value, index) => index === 6 ? value : tsvEscape(value)).join("\t"));
     return [headers.join("\t"), ...rows].join("\n");
   }
-  function allFormsToTsv(forms) { return ["Form\tDate\tEntry_Number\tError_Code\tRule_Pattern\tSpeed_Flags\tReasoning_Note", ...forms.flatMap((form) => formToTsv(form).split("\n").slice(1))].join("\n"); }
+  function allFormsToTsv(forms) { return ["Form\tDate\tEntry_Number\tError_Code\tRule_Pattern\tSpeed_Flags\tReasoning_Note\tNote_Type\tForm_ID\tNote_ID", ...forms.flatMap((form) => formToTsv(form).split("\n").slice(1))].join("\n"); }
   function activeRulesTsv(rules) {
-    const headers = ["Rule_ID", "Canonical_Pattern", "Rule_Text", "Status", "Occurrence_Count", "First_Seen", "Last_Seen", "Next_Review", "Notes"];
-    const rows = rules.filter((rule) => rule.status !== "archived").map((rule) => [rule.id, rule.patternLabel, rule.ruleText, rule.status, rule.occurrenceCount, rule.firstSeen, rule.lastSeen, rule.nextReviewAt || "", rule.notes].map((value) => tsvEscape(value)).join("\t"));
+    const headers = ["Rule_ID", "Canonical_Pattern", "Rule_Text", "Status", "Occurrence_Count", "First_Seen", "Last_Seen", "Next_Review", "Notes", "Note_Type", "Source_Form_ID", "Source_Form", "Source_Entry", "Source_Note_ID", "All_Sources"];
+    const rows = rules.filter((rule) => rule.status !== "archived").map((rule) => [rule.id, rule.patternLabel, rule.ruleText, rule.status, rule.occurrenceCount, rule.firstSeen, rule.lastSeen, rule.nextReviewAt || "", rule.notes, rule.noteKind === "reasoning" ? "Reasoning cue" : "Clinical pearl", rule.sourceFormId, rule.sourceFormName, rule.sourceQuestionNumber, rule.sourceNoteId, JSON.stringify(rule.occurrences || [])].map((value) => tsvEscape(value)).join("\t"));
     return [headers.join("\t"), ...rows].join("\n");
   }
   function analysisMarkdown(analytics, rules) {
@@ -519,8 +607,9 @@
     const rules = await allHydratedRules();
     const uiScaleRecord = includeBrowserSettings ? await get(STORES.settings, "ui_scale").catch(() => null) : null;
     const reviewIntervalsRecord = includeBrowserSettings ? await get(STORES.settings, "review_intervals").catch(() => null) : null;
-    const settings = includeBrowserSettings ? { uiScale: Number(uiScaleRecord?.value ?? 100) || 100, reviewIntervals: normalizeReviewIntervals(reviewIntervalsRecord?.value) } : {};
-    const settingsUpdatedAt = [uiScaleRecord?.updatedAt || "", reviewIntervalsRecord?.updatedAt || ""].sort().at(-1) || "";
+    const shortcutsRecord = includeBrowserSettings ? await get(STORES.settings, "review_shortcuts").catch(() => null) : null;
+    const settings = includeBrowserSettings ? { uiScale: Number(uiScaleRecord?.value ?? 100) || 100, reviewIntervals: normalizeReviewIntervals(reviewIntervalsRecord?.value), reviewShortcuts: normalizeReviewShortcuts(shortcutsRecord?.value) } : {};
+    const settingsUpdatedAt = [uiScaleRecord?.updatedAt || "", reviewIntervalsRecord?.updatedAt || "", shortcutsRecord?.updatedAt || ""].sort().at(-1) || "";
     return { app: "ThunderShadow", version: BACKUP_VERSION, storage: emergencyStorage ? "browser-localstorage-emergency" : "browser-indexeddb", exportedAt: nowISO(), schemaVersion: SCHEMA_VERSION, forms, rules, settings, settingsUpdatedAt, tombstones: await tombstones() };
   }
 
@@ -534,7 +623,7 @@
 
   function validateBackupPayload(payload) {
     if (!payload || typeof payload !== "object" || payload.app !== "ThunderShadow" || !Array.isArray(payload.forms)) throw new Error("This is not a valid ThunderShadow backup.");
-    if (payload.version != null && ![1, 2, 3, 4, 5, 6].includes(Number(payload.version))) throw new Error(`Backup version ${payload.version} is not supported.`);
+    if (payload.version != null && ![1, 2, 3, 4, 5, 6, 7].includes(Number(payload.version))) throw new Error(`Backup version ${payload.version} is not supported.`);
     return payload;
   }
 
@@ -558,6 +647,7 @@
     if (payload.settings?.reviewIntervals && typeof payload.settings.reviewIntervals === "object") {
       await put(STORES.settings, { key: "review_intervals", value: normalizeReviewIntervals(payload.settings.reviewIntervals), updatedAt: payload.settingsUpdatedAt || nowISO() });
     }
+    if (payload.settings?.reviewShortcuts) await put(STORES.settings, { key: "review_shortcuts", value: normalizeReviewShortcuts(payload.settings.reviewShortcuts), updatedAt: payload.settingsUpdatedAt || nowISO() });
     await setMeta("tombstones", { forms: { ...(payload.tombstones?.forms || {}) }, rules: { ...(payload.tombstones?.rules || {}) }, entries: { ...(payload.tombstones?.entries || {}) } });
     if (!preserveBackups) await clear(STORES.backups);
     return { restored: forms.length, rulesRestored: rules.length };
@@ -615,7 +705,7 @@
     if (!b) return deepClone(a);
     const base = deepClone(newer(a, b));
     const aliasMap = new Map();
-    for (const alias of [...(a.aliases || []), ...(b.aliases || [])]) aliasMap.set(`${canonicalPattern(alias.pattern)}\n${normalizedRuleText(alias.ruleText)}`, { pattern: canonicalPattern(alias.pattern), ruleText: alias.ruleText });
+    for (const alias of [...(a.aliases || []), ...(b.aliases || [])]) aliasMap.set(ruleIdentity(alias), { noteKind: canonicalNoteKind(alias.noteKind, alias.pattern), pattern: canonicalPattern(alias.pattern), ruleText: alias.ruleText });
     const reviewMap = new Map();
     for (const review of [...(a.reviewHistory || []), ...(b.reviewHistory || [])]) reviewMap.set(review.id || `${review.reviewedAt}:${review.response}`, deepClone(review));
     base.aliases = [...aliasMap.values()]; base.reviewHistory = [...reviewMap.values()].sort((x, y) => String(y.reviewedAt || "").localeCompare(String(x.reviewedAt || "")));
@@ -690,6 +780,10 @@
       });
     }
 
+    if (remoteSettingsUpdatedAt && remotePayload.settings?.reviewShortcuts) {
+      const value = normalizeReviewShortcuts(remotePayload.settings.reviewShortcuts);
+      await updateRecordAtomically(STORES.settings, "review_shortcuts", (stored) => remoteSettingsUpdatedAt > String(stored?.updatedAt || "") ? { key: "review_shortcuts", value, updatedAt: remoteSettingsUpdatedAt } : stored);
+    }
     await updateRecordAtomically(STORES.meta, "tombstones", (record) => {
       const current = record?.value && typeof record.value === "object" ? record.value : { forms: {}, rules: {}, entries: {} };
       const merged = { forms: { ...(current.forms || {}) }, rules: { ...(current.rules || {}) }, entries: { ...(current.entries || {}) } };
@@ -896,7 +990,7 @@
           form.entries = entries.filter((entry) => entry.deleted || isLogged(entry) || entry === trailing);
           if (trailing) { form.questions = form.entries; await put(STORES.forms, form); return jsonResponse(trailing); }
           const n = Math.max(Number(form.maxEntryNumber || 0), ...entries.map((entry) => entry.entryNumber), 0) + 1; if (n > MAX_ENTRY_NUMBER) throw new Error("Entry number limit reached.");
-          const timestamp = nowISO(); const entry = { ...blankEntry(n), createdAt: timestamp, updatedAt: timestamp, revision: 1 };
+          const timestamp = nowISO(); const entry = { ...blankEntry(n), noteId: noteIdFor(formId, n), createdAt: timestamp, updatedAt: timestamp, revision: 1 };
           form.entries.push(entry); form.entries.sort((a, b) => a.entryNumber - b.entryNumber); form.questions = form.entries; form.maxEntryNumber = n; form.currentEntry = n; form.currentQuestion = n; form.updatedAt = timestamp;
           await put(STORES.forms, form); notifyMutation("entry.created", { formId, entryNumber: n }); return jsonResponse(entry, 201);
         }
@@ -912,7 +1006,7 @@
             while (Number(form.maxEntryNumber || 0) < n) { const next = Number(form.maxEntryNumber || 0) + 1; entries.push({ ...blankEntry(next), createdAt: nowISO(), updatedAt: nowISO(), revision: 0 }); form.maxEntryNumber = next; }
             index = entries.findIndex((entry) => entry.entryNumber === n);
           }
-          const existing = entries[index]; const body = await parseBody(options); const saved = normalizeEntry({ ...existing, ...body, entryNumber: n, number: n, deleted: existing.deleted, revision: Number(existing.revision || 0) + 1, createdAt: existing.createdAt || nowISO(), updatedAt: nowISO() }, n);
+          const existing = entries[index]; const body = await parseBody(options); const saved = normalizeEntry({ ...existing, ...body, noteId: noteIdFor(formId, n), entryNumber: n, number: n, deleted: existing.deleted, revision: Number(existing.revision || 0) + 1, createdAt: existing.createdAt || nowISO(), updatedAt: nowISO() }, n);
           entries[index] = saved; form.entries = entries.sort((a, b) => a.entryNumber - b.entryNumber); form.questions = form.entries; form.currentEntry = n; form.currentQuestion = n; form.updatedAt = nowISO(); await put(STORES.forms, form); notifyMutation("entry.updated", { formId, entryNumber: n }); return jsonResponse(saved);
         }
         if (method === "DELETE") {
@@ -962,15 +1056,15 @@
         return jsonResponse({ rules: output, candidates: await ruleCandidates() });
       }
       if (pathname.endsWith("/api/rules/review") && method === "GET") {
-        const limit = Math.max(1, Math.min(30, Number(url.searchParams.get("limit")) || 10)), today = nowISO().slice(0, 10); const allRules = await allHydratedRules(); const due = allRules.filter((rule) => rule.status !== "archived" && (!rule.nextReviewAt || rule.nextReviewAt <= today)).sort((a, b) => String(a.nextReviewAt || "").localeCompare(String(b.nextReviewAt || "")) || b.occurrenceCount - a.occurrenceCount || b.lastSeen.localeCompare(a.lastSeen)); return jsonResponse({ date: today, due: due.length, suspended: allRules.filter((rule) => rule.status === "archived").length, rules: due.slice(0, limit) });
+        const limit = Math.max(1, Math.min(30, Number(url.searchParams.get("limit")) || 10)), today = nowISO().slice(0, 10); const allRules = await allHydratedRules(); const due = allRules.filter((rule) => (!url.searchParams.get("noteKind") || rule.noteKind === url.searchParams.get("noteKind")) && rule.status !== "archived" && (!rule.nextReviewAt || rule.nextReviewAt <= today)).sort((a, b) => String(a.nextReviewAt || "").localeCompare(String(b.nextReviewAt || "")) || b.occurrenceCount - a.occurrenceCount || b.lastSeen.localeCompare(a.lastSeen)); return jsonResponse({ date: today, due: due.length, suspended: allRules.filter((rule) => rule.status === "archived").length, rules: due.slice(0, limit) });
       }
       if (pathname.endsWith("/api/rules") && method === "POST") {
-        const body = await parseBody(options); let source = null; if (body.sourceFormId && body.sourceQuestionNumber) { const form = await get(STORES.forms, body.sourceFormId); source = form?.entries?.find((entry) => entry.entryNumber === Number(body.sourceQuestionNumber)); }
-        const candidate = normalizeRule({ ...body, pattern: body.pattern || source?.pattern, ruleText: body.ruleText || source?.reasoningNote }); const duplicates = await duplicateMatches(candidate); if (duplicates.exact.length) return jsonResponse({ error: { code: "EXACT_DUPLICATE", message: "This exact rule is already in the library.", details: { rules: duplicates.exact } } }, 409); await put(STORES.rules, candidate); await clearTombstone("rule", candidate.id); notifyMutation("rule.created", { ruleId: candidate.id }); return jsonResponse({ rule: await hydrateRule(candidate), nearDuplicates: duplicates.near }, 201);
+        const body = await parseBody(options); let source = null, sourceForm = null; if (body.sourceFormId && body.sourceQuestionNumber) { const form = await get(STORES.forms, body.sourceFormId); sourceForm = form; source = form?.entries?.find((entry) => entry.entryNumber === Number(body.sourceQuestionNumber)); }
+        const candidate = normalizeRule({ ...body, metadataVersion: 1, noteKind: body.noteKind ?? (source ? canonicalNoteKind(source.noteKind, source.pattern) : "clinical"), sourceFormName: sourceForm?.name ?? body.sourceFormName, sourceNoteId: body.sourceFormId && body.sourceQuestionNumber ? noteIdFor(body.sourceFormId, body.sourceQuestionNumber) : null, pattern: body.pattern || source?.pattern, ruleText: body.ruleText || source?.reasoningNote }); const duplicates = await duplicateMatches(candidate); if (duplicates.exact.length) return jsonResponse({ error: { code: "EXACT_DUPLICATE", message: "This exact rule is already in the library.", details: { rules: duplicates.exact } } }, 409); await put(STORES.rules, candidate); await clearTombstone("rule", candidate.id); notifyMutation("rule.created", { ruleId: candidate.id }); return jsonResponse({ rule: await hydrateRule(candidate), nearDuplicates: duplicates.near }, 201);
       }
       m = match(pathname, /\/api\/rules\/([^/]+)$/);
       if (m && method === "PUT") {
-        const id = m[0], existing = await get(STORES.rules, id); if (!existing) return errorResponse(new Error("Rule not found."), 404, "NOT_FOUND"); const body = await parseBody(options); const priorIdentity = `${existing.pattern}\n${normalizedRuleText(existing.ruleText)}`; const updated = normalizeRule({ ...existing, ...body, id, updatedAt: nowISO() }, existing); const nextIdentity = `${updated.pattern}\n${normalizedRuleText(updated.ruleText)}`; if (priorIdentity !== nextIdentity) updated.aliases = [...(updated.aliases || []), { pattern: existing.pattern, ruleText: existing.ruleText }]; const duplicates = await duplicateMatches(updated, null, id); if (duplicates.exact.length) return jsonResponse({ error: { code: "EXACT_DUPLICATE", message: "This exact rule is already in the library.", details: { rules: duplicates.exact } } }, 409); await put(STORES.rules, updated); notifyMutation("rule.updated", { ruleId: id }); return jsonResponse({ rule: await hydrateRule(updated), nearDuplicates: duplicates.near });
+        const id = m[0], existing = await get(STORES.rules, id); if (!existing) return errorResponse(new Error("Rule not found."), 404, "NOT_FOUND"); const body = await parseBody(options); const priorIdentity = ruleIdentity(existing); const updated = normalizeRule({ ...existing, ...body, id, updatedAt: nowISO() }, existing); const nextIdentity = ruleIdentity(updated); if (priorIdentity !== nextIdentity) updated.aliases = [...(updated.aliases || []), { noteKind: canonicalNoteKind(existing.noteKind, existing.pattern), pattern: existing.pattern, ruleText: existing.ruleText }]; const duplicates = await duplicateMatches(updated, null, id); if (duplicates.exact.length) return jsonResponse({ error: { code: "EXACT_DUPLICATE", message: "This exact rule is already in the library.", details: { rules: duplicates.exact } } }, 409); await put(STORES.rules, updated); notifyMutation("rule.updated", { ruleId: id }); return jsonResponse({ rule: await hydrateRule(updated), nearDuplicates: duplicates.near });
       }
       if (m && method === "DELETE") {
         const id = m[0], existing = await get(STORES.rules, id);
@@ -982,7 +1076,7 @@
       }
       m = match(pathname, /\/api\/rules\/([^/]+)\/merge$/);
       if (m && method === "POST") {
-        const target = await get(STORES.rules, m[0]); const body = await parseBody(options); const source = await get(STORES.rules, body.sourceRuleId); if (!target || !source) return errorResponse(new Error("Merge rule was not found."), 404, "NOT_FOUND"); if (target.id === source.id) return errorResponse(new Error("A rule cannot be merged into itself."), 400); const merged = normalizeRule({ ...target, pattern: body.pattern || target.pattern, ruleText: body.ruleText ?? target.ruleText, updatedAt: nowISO() }, target); merged.aliases = [...(target.aliases || []), { pattern: source.pattern, ruleText: source.ruleText }, ...(source.aliases || [])]; merged.reviewHistory = [...(target.reviewHistory || []), ...(source.reviewHistory || [])]; merged.successfulReviews = Number(target.successfulReviews || 0) + Number(source.successfulReviews || 0); await put(STORES.rules, merged); await del(STORES.rules, source.id); await markDeleted("rule", source.id); notifyMutation("rule.merged", { ruleId: target.id, removedRuleId: source.id, immediate: true }); return jsonResponse(await hydrateRule(merged));
+        const target = await get(STORES.rules, m[0]); const body = await parseBody(options); const source = await get(STORES.rules, body.sourceRuleId); if (!target || !source) return errorResponse(new Error("Merge rule was not found."), 404, "NOT_FOUND"); if (target.id === source.id) return errorResponse(new Error("A rule cannot be merged into itself."), 400); const merged = normalizeRule({ ...target, pattern: body.pattern || target.pattern, ruleText: body.ruleText ?? target.ruleText, updatedAt: nowISO() }, target); merged.aliases = [...(target.aliases || []), { noteKind: canonicalNoteKind(source.noteKind, source.pattern), pattern: source.pattern, ruleText: source.ruleText }, ...(source.aliases || [])]; merged.reviewHistory = [...(target.reviewHistory || []), ...(source.reviewHistory || [])]; merged.successfulReviews = Number(target.successfulReviews || 0) + Number(source.successfulReviews || 0); await put(STORES.rules, merged); await del(STORES.rules, source.id); await markDeleted("rule", source.id); notifyMutation("rule.merged", { ruleId: target.id, removedRuleId: source.id, immediate: true }); return jsonResponse(await hydrateRule(merged));
       }
       m = match(pathname, /\/api\/rules\/([^/]+)\/reviews$/);
       if (m && method === "POST") {
@@ -994,18 +1088,21 @@
       if (pathname.endsWith("/api/export/analytics.json") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; return textResponse(JSON.stringify(calculateAnalytics(await allForms(), filters), null, 2), "application/json; charset=utf-8", "ThunderShadow_Analytics.json"); }
       if (pathname.endsWith("/api/export/chatgpt-analysis.md") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; const analytics = calculateAnalytics(await allForms(), filters); return textResponse(analysisMarkdown(analytics, await allHydratedRules()), "text/markdown; charset=utf-8", "ThunderShadow_ChatGPT_Analysis.md"); }
 
+      if (pathname.endsWith("/api/notes/upgrade") && method === "GET") return jsonResponse(await noteUpgradeStatus());
+      if (pathname.endsWith("/api/notes/upgrade") && method === "POST") return jsonResponse(await upgradeNoteMetadata());
       if (pathname.endsWith("/api/settings") && method === "GET") {
         let storageRecovery = null;
         try { storageRecovery = JSON.parse(localStorage.getItem(STORAGE_RECOVERY_KEY) || "null"); } catch {}
-        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, reviewIntervals: normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)), backup: emergencyStorage ? { directory: "Disabled while IndexedDB is unavailable", retention: 0, intervalHours: 0 } : { directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS }, schemaVersion: SCHEMA_VERSION, storage: { mode: emergencyStorage ? "localStorage-emergency" : "indexedDB", database: emergencyStorage ? null : activeDbName, recovery: storageRecovery } });
+        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, reviewIntervals: normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)), reviewShortcuts: normalizeReviewShortcuts(await getSetting("review_shortcuts", DEFAULT_REVIEW_SHORTCUTS)), backup: emergencyStorage ? { directory: "Disabled while IndexedDB is unavailable", retention: 0, intervalHours: 0 } : { directory: "Browser IndexedDB snapshots", retention: BACKUP_RETENTION, intervalHours: BACKUP_INTERVAL_HOURS }, schemaVersion: SCHEMA_VERSION, storage: { mode: emergencyStorage ? "localStorage-emergency" : "indexedDB", database: emergencyStorage ? null : activeDbName, recovery: storageRecovery } });
       }
       if (pathname.endsWith("/api/settings") && method === "PUT") {
         const body = await parseBody(options); let changed = false;
         if (body.uiScale != null) { const uiScale = Number(body.uiScale); if (!ZOOM_LEVELS.has(uiScale)) return errorResponse(new Error("UI scale must be 80–120 in 5% steps."), 400); const previous = Number(await getSetting("ui_scale", 100)) || 100; if (previous !== uiScale) { await setSetting("ui_scale", uiScale); changed = true; } }
         if (body.reviewIntervals != null) { const reviewIntervals = normalizeReviewIntervals(body.reviewIntervals, true); const previous = normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)); if (JSON.stringify(previous) !== JSON.stringify(reviewIntervals)) { await setSetting("review_intervals", reviewIntervals); changed = true; } }
-        if (body.uiScale == null && body.reviewIntervals == null) return errorResponse(new Error("No recognized setting was provided."), 400);
-        if (changed) notifyMutation("settings.updated", { setting: body.reviewIntervals != null ? "reviewIntervals" : "uiScale" });
-        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, reviewIntervals: normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)) });
+        if (body.reviewShortcuts != null) { const value = normalizeReviewShortcuts(body.reviewShortcuts, true); const previous = normalizeReviewShortcuts(await getSetting("review_shortcuts", DEFAULT_REVIEW_SHORTCUTS)); if (JSON.stringify(previous) !== JSON.stringify(value)) { await setSetting("review_shortcuts", value); changed = true; } }
+        if (body.uiScale == null && body.reviewIntervals == null && body.reviewShortcuts == null) return errorResponse(new Error("No recognized setting was provided."), 400);
+        if (changed) notifyMutation("settings.updated", { setting: body.reviewShortcuts != null ? "reviewShortcuts" : body.reviewIntervals != null ? "reviewIntervals" : "uiScale" });
+        return jsonResponse({ uiScale: Number(await getSetting("ui_scale", 100)) || 100, reviewIntervals: normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)), reviewShortcuts: normalizeReviewShortcuts(await getSetting("review_shortcuts", DEFAULT_REVIEW_SHORTCUTS)) });
       }
 
       return errorResponse(new Error("Browser API endpoint not found."), 404, "NOT_FOUND");

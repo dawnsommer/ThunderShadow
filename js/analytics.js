@@ -59,11 +59,12 @@ function findRuleDuplicates(candidate, rules, nearThreshold = 0.55) {
   const exactText = normalizedRuleText(candidate.ruleText);
   const exact = rules.filter((rule) =>
     rule.id !== candidate.id &&
-    rule.pattern === candidate.pattern &&
+    window.ThunderShadowReasoning.canonicalNoteKind(rule.noteKind, rule.pattern) === window.ThunderShadowReasoning.canonicalNoteKind(candidate.noteKind, candidate.pattern) &&
+    (candidate.noteKind === "clinical" || rule.pattern === candidate.pattern) &&
     normalizedRuleText(rule.ruleText) === exactText
   );
   const near = rules
-    .filter((rule) => rule.id !== candidate.id && !exact.includes(rule))
+    .filter((rule) => rule.id !== candidate.id && !exact.includes(rule) && window.ThunderShadowReasoning.canonicalNoteKind(rule.noteKind, rule.pattern) === window.ThunderShadowReasoning.canonicalNoteKind(candidate.noteKind, candidate.pattern))
     .map((rule) => ({ ...rule, similarity: Number(ruleSimilarity(candidate.ruleText, rule.ruleText).toFixed(2)) }))
     .filter((rule) => rule.similarity >= nearThreshold)
     .sort((a, b) => b.similarity - a.similarity);

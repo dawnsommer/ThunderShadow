@@ -8,9 +8,27 @@
     review: document.getElementById("reviewView"),
     settings: document.getElementById("settingsView")
   };
-  const state = { rules: [], candidates: [], analytics: null, review: null, reviewIntervals: { again: 1, hard: 3, good: 7, easy: 30 }, reviewedThisSession: 0, activeArea: null, restorePreview: null };
+  const state = { rules: [], candidates: [], analytics: null, review: null, reviewIntervals: { again: 1, hard: 3, good: 7, easy: 30 }, reviewedThisSession: 0, activeArea: null, reviewKind: "all", reviewLoad: 0, reviewShortcuts: { again: "1", hard: "2", good: "3", easy: "4", quickGood: "Space" }, settingsCategory: "cards", restorePreview: null };
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
   const labelResponse = (value) => ({ again: "Again", hard: "Hard", good: "Good", easy: "Easy", still_weak: "Still weak", partly_reliable: "Partly reliable", reliable_today: "Reliable today", mastered: "Mastered", skip: "Skip" })[value] || value;
+
+  function applyReviewTextSize(value, persist = false) {
+    const size = Math.min(140, Math.max(80, Math.round((Number(value) || 100) / 5) * 5));
+    document.documentElement.style.setProperty("--review-text-scale", String(size / 100));
+    document.getElementById("reviewTextSize").value = size;
+    document.getElementById("reviewTextSizeValue").textContent = `${size}%`;
+    if (persist) { try { localStorage.setItem("thundershadow:review-text-size", String(size)); } catch (_) {} }
+  }
+  let savedReviewTextSize = 100;
+  try { savedReviewTextSize = localStorage.getItem("thundershadow:review-text-size") || 100; } catch (_) {}
+  applyReviewTextSize(savedReviewTextSize);
+  document.getElementById("reviewTextSize").addEventListener("input", (event) => applyReviewTextSize(event.target.value, true));
+  document.getElementById("resetReviewTextSizeBtn").addEventListener("click", () => applyReviewTextSize(100, true));
+
+  const kindLabel = (kind) => kind === "reasoning" ? "Reasoning cue" : "Clinical pearl";
+  const tagMarkup = (rule) => `<span class="note-tag note-tag--static" data-note-kind="${escapeHTML(rule.noteKind)}">${kindLabel(rule.noteKind)}</span>${rule.noteKind === "reasoning" && rule.pattern ? `<span class="badge">${escapeHTML(rule.patternLabel)}</span>` : ""}`;
+  const patternOptions = (selected) => `<option value="">No pattern</option>` + window.ThunderShadowReasoning.PATTERNS.map((pattern) => `<option value="${pattern.value}"${pattern.value === selected ? " selected" : ""}>${pattern.code} — ${pattern.label}</option>`).join("");
+  const sourceLabel = (rule) => rule.sourceFormName ? `${rule.sourceFormName} · Entry ${rule.sourceQuestionNumber}` : rule.sourceFormId ? `Source form · Entry ${rule.sourceQuestionNumber || "?"}` : "Source unavailable";
 
   function hide() {
     Object.values(views).forEach((view) => { view.hidden = true; });
@@ -21,7 +39,22 @@
     document.querySelectorAll("[data-area]").forEach((button) => button.classList.toggle("is-active", button.dataset.area === area));
   }
 
+  function selectSettingsCategory(category, focus = false) {
+    const tabs = [...document.querySelectorAll("[data-settings-category]")];
+    if (!tabs.some((tab) => tab.dataset.settingsCategory === category)) return;
+    state.settingsCategory = category;
+    tabs.forEach((tab) => {
+      const selected = tab.dataset.settingsCategory === category;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+      if (selected && focus) tab.focus({ preventScroll: true });
+    });
+    views.settings.querySelector(".v3-scroll").scrollTop = 0;
+  }
+
   async function show(area) {
+    await app.flushPendingEntry();
     if (area === "logger") {
       hide();
       app.showLibrary();
@@ -32,10 +65,10 @@
     app.activateAuxiliaryView(area);
     setActiveNav(area);
     try {
-      if (area === "library") await loadLibrary();
+      if (area === "library") { await app.refreshForms(); await loadLibrary(); }
       if (area === "analysis") await loadAnalysis();
       if (area === "review") await loadReview();
-      if (area === "settings") { await Promise.all([loadBackups(), loadReviewIntervals(), app.refreshAccess()]); }
+      if (area === "settings") { selectSettingsCategory(state.settingsCategory); await Promise.all([loadBackups(), loadReviewIntervals(), loadNoteUpgrade(), app.refreshAccess()]); }
     } catch (error) {
       console.error(error);
       app.showToast(error.message || "This area could not be loaded.");
@@ -46,8 +79,8 @@
     const suspended = rule.status === "archived";
     const sourceFormAvailable = rule.sourceFormId && app.getForms().some((form) => form.id === rule.sourceFormId);
     const source = sourceFormAvailable && rule.sourceQuestionNumber
-      ? `<button class="button button--subtle" data-rule-action="source" type="button">Open source Entry ${rule.sourceQuestionNumber}</button>`
-      : rule.sourceFormId ? `<span class="muted">Source form deleted</span>` : "";
+      ? `<button class="button button--subtle" data-rule-action="source" type="button">${escapeHTML(sourceLabel(rule))}</button>`
+      : rule.sourceFormId ? `<span class="muted">${escapeHTML(sourceLabel(rule))} · form unavailable</span>` : "";
     const suggestions = (rule.nearDuplicates || []).map((item) => `
       <div class="duplicate-suggestion">
         <span>${Math.round(item.similarity * 100)}% similar: ${escapeHTML(item.ruleText)}</span>
@@ -60,18 +93,21 @@
     return `
       <details class="rule-card${suspended ? " rule-card--suspended" : ""}" data-rule-id="${escapeHTML(rule.id)}">
         <summary class="rule-card__summary">
-          <span class="rule-card__summary-main"><span class="badge">${escapeHTML(rule.patternLabel)}</span><strong>${escapeHTML(rule.ruleText)}</strong></span>
+          <span class="rule-card__summary-main"><span class="rule-tags">${tagMarkup(rule)}</span><strong>${escapeHTML(rule.ruleText)}</strong></span>
           <span class="rule-card__summary-meta">${rule.occurrenceCount} occurrence${rule.occurrenceCount === 1 ? "" : "s"} · ${suspended ? "suspended" : `due ${escapeHTML(rule.nextReviewAt || "today")}`}</span>
         </summary>
         <div class="rule-card__details">
           <div class="rule-card__meta">
-          <span class="badge">${escapeHTML(rule.patternLabel)}</span>
+          ${tagMarkup(rule)}
           <span>${rule.occurrenceCount} exact occurrence${rule.occurrenceCount === 1 ? "" : "s"}</span>
           <span>${escapeHTML(rule.firstSeen)} → ${escapeHTML(rule.lastSeen)}</span>
             <span>${suspended ? "Removed from review" : `Next review: ${escapeHTML(rule.nextReviewAt || "today")}`}</span>
           </div>
+          <p class="rule-source" title="${escapeHTML(rule.sourceNoteId || rule.id)}">${escapeHTML(sourceLabel(rule))}<small>Rule ID: ${escapeHTML(rule.id)}${rule.sourceNoteId ? ` · Note ID: ${escapeHTML(rule.sourceNoteId)}` : ""}</small></p>
           <label class="rule-edit-label"><span>Rule wording</span><textarea class="rule-card__text" maxlength="12000" aria-label="Canonical rule wording">${escapeHTML(rule.ruleText)}</textarea></label>
           <div class="rule-card__controls">
+            <label>Note tag<select class="rule-kind" aria-label="Note tag"><option value="clinical"${rule.noteKind === "clinical" ? " selected" : ""}>Clinical pearl</option><option value="reasoning"${rule.noteKind === "reasoning" ? " selected" : ""}>Reasoning cue</option></select></label>
+            <label class="rule-pattern-label"${rule.noteKind === "clinical" ? " hidden" : ""}>Pattern<select class="rule-pattern" aria-label="Reasoning cue pattern">${patternOptions(rule.pattern)}</select></label>
             ${suspended ? "" : `<label>Status <select class="rule-status">${["new", "active", "improving", "mastered"].map((status) => `<option value="${status}"${rule.status === status ? " selected" : ""}>${status}</option>`).join("")}</select></label>`}
             <label class="rule-notes-label">Notes <input class="rule-notes" maxlength="12000" value="${escapeHTML(rule.notes)}" placeholder="Optional notes"></label>
             <button class="button button--primary" data-rule-action="save" type="button">Save</button>
@@ -98,22 +134,28 @@
     document.getElementById("candidateBulkActions").hidden = !state.candidates.length;
     document.getElementById("selectAllCandidates").checked = false;
     document.getElementById("selectAllCandidates").indeterminate = false;
-    document.getElementById("personalRulesList").innerHTML = activeRules.length
-      ? activeRules.map(ruleCard).join("")
-      : '<div class="frequency-empty">No active rules yet. Add one from a logged Reasoning Note above.</div>';
-    document.getElementById("suspendedRulesList").innerHTML = suspendedRules.length
-      ? suspendedRules.map(ruleCard).join("")
-      : '<div class="frequency-empty">No suspended rules.</div>';
+    renderSavedRules();
     document.getElementById("ruleCandidatesList").innerHTML = state.candidates.length
       ? state.candidates.map((candidate, index) => `
           <article class="candidate-card" data-candidate-index="${index}">
             <label class="candidate-card__select"><input type="checkbox" data-candidate-select aria-label="Select rule from ${escapeHTML(candidate.sourceFormName)}"></label>
-            <div class="candidate-card__content"><span class="badge">${escapeHTML(candidate.patternLabel)}</span><strong>${escapeHTML(candidate.ruleText)}</strong><small>${escapeHTML(candidate.sourceFormName)} · Entry ${candidate.sourceQuestionNumber} · ${escapeHTML(candidate.sourceDate)}</small></div>
+            <div class="candidate-card__content">${tagMarkup(candidate)}<strong>${escapeHTML(candidate.ruleText)}</strong><small>${escapeHTML(candidate.sourceFormName)} · Entry ${candidate.sourceQuestionNumber} · ${escapeHTML(candidate.sourceDate)}</small></div>
             <button class="button button--primary" data-candidate-action="add" type="button">Add to library</button>
           </article>
         `).join("")
-      : '<div class="frequency-empty">Every Reasoning Note is already represented, or no Reasoning Notes have been logged.</div>';
+      : '<div class="frequency-empty">Every study note is already represented, or no study notes have been logged.</div>';
     updateCandidateSelection();
+  }
+
+  function renderSavedRules() {
+    const query = document.getElementById("ruleSearchInput").value.trim().toLowerCase();
+    const matches = state.rules.filter((rule) => !query || [rule.ruleText, rule.notes, kindLabel(rule.noteKind), rule.noteKind === "reasoning" ? rule.patternLabel : "", rule.id, rule.sourceNoteId, sourceLabel(rule), ...(rule.occurrences || []).map((item) => `${item.formName} ${item.noteId}`)].join(" ").toLowerCase().includes(query));
+    const active = matches.filter((rule) => rule.status !== "archived");
+    const suspended = matches.filter((rule) => rule.status === "archived");
+    document.getElementById("personalRulesList").innerHTML = active.length ? active.map(ruleCard).join("") : `<div class="frequency-empty">${query ? "No active rules match your search." : "No active rules yet. Add a study note from your logs above."}</div>`;
+    document.getElementById("suspendedRulesList").innerHTML = suspended.length ? suspended.map(ruleCard).join("") : '<div class="frequency-empty">No suspended rules match.</div>';
+    document.getElementById("ruleSearchStatus").textContent = query ? `${matches.length} of ${state.rules.length} saved rules match · ${suspended.length} suspended` : "";
+    if (query && suspended.length) document.getElementById("suspendedRulesPanel").open = true;
   }
 
   function selectedCandidateIndices() {
@@ -144,7 +186,7 @@
       for (const index of uniqueIndices) {
         const candidate = state.candidates[index];
         try {
-          await app.apiRequest("/api/rules", { method: "POST", body: JSON.stringify({ pattern: candidate.pattern, ruleText: candidate.ruleText, sourceFormId: candidate.sourceFormId, sourceQuestionNumber: candidate.sourceQuestionNumber }) });
+          await app.apiRequest("/api/rules", { method: "POST", body: JSON.stringify(candidate) });
           added += 1;
         } catch (error) {
           failed += 1;
@@ -178,7 +220,8 @@
     const ruleText = card.querySelector(".rule-card__text").value.trim();
     if (!ruleText) throw new Error("Rule wording cannot be blank.");
     const payload = {
-      pattern: existing.pattern,
+      noteKind: card.querySelector(".rule-kind").value,
+      pattern: card.querySelector(".rule-pattern").value,
       ruleText,
       status: forceStatus || card.querySelector(".rule-status")?.value || existing.status,
       notes: card.querySelector(".rule-notes").value
@@ -272,12 +315,23 @@
     const intervals = state.reviewIntervals;
     return `
       <article class="panel review-card" data-rule-id="${escapeHTML(rule.id)}">
-        <div class="review-card__topline"><div class="rule-card__meta"><span class="badge">${escapeHTML(rule.patternLabel)}</span><span>${rule.occurrenceCount} occurrence${rule.occurrenceCount === 1 ? "" : "s"}</span><span>Last seen ${escapeHTML(rule.lastSeen)}</span></div><button class="button button--danger-ghost" type="button" data-review-action="suspend">Suspend</button></div>
-        <div class="review-card__rule"><span class="eyebrow">Rule</span><h2>${escapeHTML(rule.ruleText)}</h2></div>
-        ${rule.notes ? `<div class="review-card__notes"><span>Note</span><p>${escapeHTML(rule.notes)}</p></div>` : ""}
-        <p class="review-card__prompt">How well did you recall and apply this rule?</p>
-        <div class="review-responses">
-          ${["again", "hard", "good", "easy"].map((response) => `<button class="review-response review-response--${response}" type="button" data-review-response="${response}"><strong>${labelResponse(response)}</strong><span>${intervals[response]} day${intervals[response] === 1 ? "" : "s"}</span></button>`).join("")}
+        <div class="review-card__content" tabindex="0" role="region" aria-label="Card text and details">
+          <div class="review-card__topline"><div class="rule-card__meta">${tagMarkup(rule)}<span class="review-card__desktop-meta"><span>${rule.occurrenceCount} occurrence${rule.occurrenceCount === 1 ? "" : "s"}</span><span>Last seen ${escapeHTML(rule.lastSeen)}</span></span></div><span class="review-card__inline-source" title="${escapeHTML(sourceLabel(rule))}">From ${escapeHTML(sourceLabel(rule))}</span><button class="button button--danger-ghost review-card__desktop-suspend" type="button" data-review-action="suspend">Suspend</button></div>
+          <p class="review-source review-card__desktop-source" title="${escapeHTML(rule.sourceNoteId || rule.id)}">From ${escapeHTML(sourceLabel(rule))}</p>
+          <div class="review-card__rule"><h2>${escapeHTML(rule.ruleText)}</h2></div>
+          ${rule.notes ? `<div class="review-card__notes"><span>Note</span><p>${escapeHTML(rule.notes)}</p></div>` : ""}
+          <details class="review-card__details">
+            <summary>Source &amp; details</summary>
+            <p class="review-source" title="${escapeHTML(rule.sourceNoteId || rule.id)}">${escapeHTML(sourceLabel(rule))}</p>
+            <p class="review-card__history">${rule.occurrenceCount} occurrence${rule.occurrenceCount === 1 ? "" : "s"} · Last seen ${escapeHTML(rule.lastSeen)}</p>
+            <button class="button button--danger-ghost" type="button" data-review-action="suspend">Suspend card</button>
+          </details>
+        </div>
+        <div class="review-card__footer">
+          <p class="review-card__prompt">How well did you recall and apply this?</p>
+          <div class="review-responses">
+            ${["again", "hard", "good", "easy"].map((response) => `<button class="review-response review-response--${response}" type="button" data-review-response="${response}" aria-label="${labelResponse(response)}, review in ${intervals[response]} day${intervals[response] === 1 ? "" : "s"}"><strong>${labelResponse(response)}</strong><span>${intervals[response]} day${intervals[response] === 1 ? "" : "s"}</span><kbd>${escapeHTML(state.reviewShortcuts[response])}${response === "good" && state.reviewShortcuts.quickGood !== "none" ? ` / ${escapeHTML(state.reviewShortcuts.quickGood)}` : ""}</kbd></button>`).join("")}
+          </div>
         </div>
       </article>
     `;
@@ -285,6 +339,8 @@
 
   function applyReviewIntervals(settings) {
     state.reviewIntervals = settings.reviewIntervals || state.reviewIntervals;
+    state.reviewShortcuts = settings.reviewShortcuts || state.reviewShortcuts;
+    for (const [name, key] of Object.entries(state.reviewShortcuts)) document.getElementById("reviewShortcutForm").elements[name].value = key;
     for (const [response, days] of Object.entries(state.reviewIntervals)) {
       const input = document.querySelector(`#reviewIntervalForm [name="${response}"]`);
       if (input) input.value = days;
@@ -296,21 +352,27 @@
   }
 
   async function loadReview() {
-    const [review, settings] = await Promise.all([app.apiRequest("/api/rules/review?limit=30"), app.apiRequest("/api/settings")]);
+    const load = ++state.reviewLoad;
+    const [review, settings] = await Promise.all([app.apiRequest(`/api/rules/review?limit=30${state.reviewKind === "all" ? "" : `&noteKind=${state.reviewKind}`}`), app.apiRequest("/api/settings")]);
+    if (load !== state.reviewLoad) return;
     state.review = review;
+    document.querySelectorAll("[data-review-kind]").forEach((button) => { const selected = button.dataset.reviewKind === state.reviewKind; button.classList.toggle("is-active", selected); button.setAttribute("aria-pressed", String(selected)); });
     applyReviewIntervals(settings);
     document.getElementById("reviewDueBadge").textContent = `${state.review.due} due`;
-    document.getElementById("viewSuspendedRulesBtn").textContent = `Suspended rules (${state.review.suspended || 0})`;
+    document.getElementById("reviewSuspendedCount").textContent = String(state.review.suspended || 0);
+    document.getElementById("viewSuspendedRulesBtn").setAttribute("aria-label", `Suspended rules (${state.review.suspended || 0})`);
     document.getElementById("reviewProgress").textContent = state.review.rules.length
-      ? `${state.reviewedThisSession} reviewed this session · ${state.review.due} waiting`
-      : state.reviewedThisSession ? `${state.reviewedThisSession} reviewed this session · queue complete` : "Nothing waiting today";
+      ? `${state.reviewedThisSession} reviewed · ${state.review.due} left`
+      : state.reviewedThisSession ? `${state.reviewedThisSession} reviewed · queue complete` : "Nothing waiting today";
     document.getElementById("reviewRulesList").innerHTML = state.review.rules.length
       ? reviewCard(state.review.rules[0])
-      : '<section class="panel review-complete"><span class="review-complete__mark">✓</span><h2>You are done for today</h2><p class="muted">New and reviewed rules will return on the dates set by your four intervals.</p></section>';
+      : `<section class="panel review-complete" tabindex="-1"><span class="review-complete__mark">✓</span><h2>${state.reviewKind === "all" ? "You are done for today" : `No ${state.reviewKind === "reasoning" ? "Reasoning cues" : "Clinical pearls"} due`}</h2><p class="muted">${state.reviewKind === "all" ? "Your cards return on the dates set by your review intervals." : "Choose All cards to review your other notes."}</p></section>`;
+    if (state.activeArea === "review" && !views.review.hidden) document.querySelector("#reviewRulesList .review-card__content, #reviewRulesList .review-complete")?.focus({ preventScroll: true });
   }
 
   async function submitReview(ruleId, response) {
     const list = document.getElementById("reviewRulesList");
+    if (list.getAttribute("aria-busy") === "true") return;
     list.setAttribute("aria-busy", "true");
     list.querySelectorAll("button").forEach((button) => { button.disabled = true; });
     try {
@@ -328,6 +390,7 @@
     const rule = state.review?.rules?.find((item) => item.id === ruleId);
     if (!rule) return;
     const list = document.getElementById("reviewRulesList");
+    if (list.getAttribute("aria-busy") === "true") return;
     list.setAttribute("aria-busy", "true");
     list.querySelectorAll("button").forEach((button) => { button.disabled = true; });
     try {
@@ -347,6 +410,18 @@
     const settings = await app.apiRequest("/api/settings", { method: "PUT", body: JSON.stringify({ reviewIntervals }) });
     applyReviewIntervals(settings);
     app.showToast("Review intervals saved.");
+  }
+
+  async function saveReviewShortcuts(reviewShortcuts) {
+    const settings = await app.apiRequest("/api/settings", { method: "PUT", body: JSON.stringify({ reviewShortcuts }) });
+    applyReviewIntervals(settings);
+    app.showToast("Review shortcuts saved.");
+  }
+
+  async function loadNoteUpgrade() {
+    const result = await app.apiRequest("/api/notes/upgrade");
+    document.getElementById("noteUpgradePanel").hidden = !result.entries && !result.rules;
+    document.getElementById("noteUpgradeStatus").textContent = `${result.entries} older notes · ${result.rules} saved rules`;
   }
 
   function download(path, fallback) {
@@ -464,6 +539,18 @@
     const button = event.target.closest("[data-area]");
     if (button) show(button.dataset.area);
   });
+  document.getElementById("settingsTabs").addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-settings-category]");
+    if (tab) selectSettingsCategory(tab.dataset.settingsCategory);
+  });
+  document.getElementById("settingsTabs").addEventListener("keydown", (event) => {
+    const tabs = [...event.currentTarget.querySelectorAll("[role='tab']")];
+    const index = tabs.indexOf(event.target);
+    if (index < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    selectSettingsCategory(tabs[next].dataset.settingsCategory, true);
+  });
   async function handleRuleListClick(event) {
     const button = event.target.closest("[data-rule-action]");
     const card = event.target.closest("[data-rule-id]");
@@ -480,6 +567,10 @@
       }
     } catch (error) { app.showToast(error.message); }
   }
+  document.getElementById("ruleSearchInput").addEventListener("input", renderSavedRules);
+  for (const listId of ["personalRulesList", "suspendedRulesList"]) document.getElementById(listId).addEventListener("change", (event) => {
+    if (event.target.matches(".rule-kind")) event.target.closest("[data-rule-id]").querySelector(".rule-pattern-label").hidden = event.target.value === "clinical";
+  });
   document.getElementById("personalRulesList").addEventListener("click", handleRuleListClick);
   document.getElementById("suspendedRulesList").addEventListener("click", handleRuleListClick);
   document.getElementById("ruleCandidatesList").addEventListener("click", (event) => {
@@ -503,12 +594,50 @@
     if (responseButton && card) submitReview(card.dataset.ruleId, responseButton.dataset.reviewResponse).catch((error) => app.showToast(error.message));
     if (suspendButton && card) suspendReview(card.dataset.ruleId).catch((error) => app.showToast(error.message));
   });
+  document.getElementById("reviewTypeFilter").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-review-kind]");
+    if (!button || document.getElementById("reviewRulesList").getAttribute("aria-busy") === "true") return;
+    state.reviewKind = button.dataset.reviewKind;
+    loadReview().catch((error) => app.showToast(error.message));
+  });
+  document.addEventListener("keydown", (event) => {
+    if (views.review.hidden || document.documentElement.dataset.activeView !== "review" || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || document.querySelector("dialog[open]") || event.target.closest("input,textarea,select,summary,a,button:not(.review-response),[contenteditable]:not([contenteditable='false'])")) return;
+    const key = event.key === " " ? "Space" : event.key.toLowerCase();
+    const response = key === state.reviewShortcuts.quickGood ? "good" : Object.entries(state.reviewShortcuts).find(([name, value]) => name !== "quickGood" && value === key)?.[0];
+    if (!response) return;
+    const button = document.querySelector(`#reviewRulesList [data-review-response="${response}"]`);
+    if (!button) return;
+    event.preventDefault();
+    if (!event.repeat && !button.disabled && document.getElementById("reviewRulesList").getAttribute("aria-busy") !== "true") button.click();
+  });
+  document.getElementById("reviewShortcutForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveReviewShortcuts(Object.fromEntries(new FormData(event.currentTarget))).catch((error) => app.showToast(error.message));
+  });
+  document.getElementById("resetReviewShortcutsBtn").addEventListener("click", () => saveReviewShortcuts({ again: "1", hard: "2", good: "3", easy: "4", quickGood: "Space" }).catch((error) => app.showToast(error.message)));
+  document.getElementById("upgradeNotesBtn").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    document.getElementById("noteUpgradeStatus").textContent = "Saving a safety snapshot and upgrading note metadata…";
+    try {
+      const result = await app.apiRequest("/api/notes/upgrade", { method: "POST", body: "{}" });
+      await app.refreshForms();
+      await Promise.all([loadNoteUpgrade(), loadBackups()]);
+      app.showToast(`Upgraded ${result.entries} notes and ${result.rules} saved rules.`);
+    } catch (error) { document.getElementById("noteUpgradeStatus").textContent = error.message; app.showToast(error.message); }
+    finally { button.disabled = false; }
+  });
   document.getElementById("reviewIntervalForm").addEventListener("submit", (event) => saveReviewIntervals(event).catch((error) => app.showToast(error.message)));
   document.getElementById("viewSuspendedRulesBtn").addEventListener("click", async () => {
     await show("library");
     const panel = document.getElementById("suspendedRulesPanel");
     panel.open = true;
-    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    const scroller = panel.closest(".v3-scroll");
+    if (scroller) {
+      const panelTop = panel.getBoundingClientRect().top;
+      const scrollerTop = scroller.getBoundingClientRect().top;
+      scroller.scrollTo({ top: scroller.scrollTop + panelTop - scrollerTop - 8, behavior: "smooth" });
+    }
   });
   document.getElementById("applyAnalysisFilters").addEventListener("click", () => loadAnalysis().catch((error) => app.showToast(error.message)));
   document.getElementById("clearAnalysisFilters").addEventListener("click", () => {

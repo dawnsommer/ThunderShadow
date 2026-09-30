@@ -11,12 +11,12 @@
   <meta name="application-name" content="ThunderShadow">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=27"></script>
-  <script src="js/uuid.js?v=27"></script>
+  <script src="js/theme-init.js?v=36"></script>
+  <script src="js/uuid.js?v=36"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=27">
+  <link rel="stylesheet" href="css/styles.css?v=36">
 </head>
 <body>
   <div class="storm" aria-hidden="true">
@@ -30,9 +30,10 @@
     <header class="topbar">
       <div class="brand" aria-label="ThunderShadow home">
         <div class="brand__mark" aria-hidden="true">ϟ</div>
-        <div>
+        <div class="brand__copy">
           <div class="brand__name">ThunderShadow</div>
-          <div class="brand__tagline">NBME/CMS rapid rule logger</div>
+          <div class="brand__byline">by Bladelord</div>
+
         </div>
       </div>
 
@@ -106,7 +107,7 @@
               <div>
                 <p class="eyebrow">Your logged forms</p>
                 <h1>ThunderShadow</h1>
-                <p class="muted">ThunderShadow is a browser-based NBME/CMS error logger and review app for recording mistakes, reasoning patterns, rules, and study analytics. Data stays in your browser by default; optional Google Drive app-data sync keeps ThunderShadow data synchronized privately across your connected devices.</p>
+                <p class="muted">Log NBME/CMS mistakes, capture study notes, and review what matters. Saved in this browser; optional private Google Drive sync connects your devices.</p>
               </div>
               <div class="panel__heading-actions">
                 <label class="search-box">
@@ -285,17 +286,18 @@
               <section class="rule-section">
                 <div id="noteArea" class="note-area touch-collapsible is-touch-collapsed">
                   <button id="noteCollapseBtn" class="touch-collapse-header" type="button" aria-expanded="false">
-                    <span><strong>Reasoning Note</strong><small id="noteCollapseSummary">Optional</small></span><i aria-hidden="true">⌄</i>
+                    <span><strong>Study note</strong><small id="noteCollapseSummary">Optional</small></span><i aria-hidden="true">⌄</i>
                   </button>
                   <div class="rule-section__top">
                     <div class="section-heading section-heading--inline desktop-section-heading">
                     <div>
-                      <h3>Reasoning Note — optional</h3>
-                      <p>What internal thought is not visible in the screenshot?</p>
+                      <h3>Study note</h3>
+                      <p>Capture a clinical pearl or a cue for next time.</p>
                     </div>
                     </div>
                   </div>
-                  <textarea id="manualRuleInput" rows="3" maxlength="12000" spellcheck="true" aria-label="Reasoning Note"></textarea>
+                  <div class="note-toolbar"><button id="noteKindBtn" class="note-tag" type="button" aria-pressed="false">Clinical pearl</button><span id="noteSourceLabel" class="note-source"></span></div>
+                  <textarea id="manualRuleInput" rows="3" maxlength="12000" spellcheck="true" aria-label="Study note"></textarea>
                 </div>
 
                 <div id="speedArea" class="speed-area touch-collapsible is-touch-collapsed">
@@ -335,7 +337,7 @@
             <div class="v3-heading__actions"><button id="exportRulesBtn" class="button button--ghost" type="button">Active-rules TSV</button></div>
           </div>
           <section class="panel v3-panel">
-            <div class="panel__heading panel__heading--compact"><div><h2>Rules found in logs</h2><p class="muted">Select the Reasoning Notes you want, or add every rule that is not already saved.</p></div><span id="candidateCountBadge" class="badge">0 found</span></div>
+            <div class="panel__heading panel__heading--compact"><div><h2>Rules found in logs</h2><p class="muted">Select study notes to review, or add every note that is not already saved.</p></div><span id="candidateCountBadge" class="badge">0 found</span></div>
             <div id="candidateBulkActions" class="candidate-bulk-actions" hidden>
               <label class="candidate-select-all"><input id="selectAllCandidates" type="checkbox"><span>Select all</span></label>
               <span id="candidateSelectionCount" class="muted">0 selected</span>
@@ -348,6 +350,8 @@
           </section>
           <section class="panel v3-panel saved-rules-panel">
             <div class="panel__heading panel__heading--compact"><div><h2>Saved rules</h2><p class="muted">Compact rows stay out of the way. Expand one to edit, open its source, or suspend it.</p></div><span id="ruleCountBadge" class="badge">0 active</span></div>
+            <label class="search-box rule-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="ruleSearchInput" type="search" placeholder="Search saved rules, tags, or source forms" aria-label="Search saved rules" autocomplete="off"></label>
+            <p id="ruleSearchStatus" class="muted" aria-live="polite"></p>
             <div id="personalRulesList" class="v3-list v3-list--compact"></div>
             <details id="suspendedRulesPanel" class="suspended-rules-panel">
               <summary><span>Suspended rules</span><span id="suspendedCountBadge" class="badge">0 suspended</span></summary>
@@ -384,111 +388,148 @@
 
       <section id="reviewView" class="view v3-view" aria-label="Active rules review" hidden>
         <div class="v3-scroll v3-scroll--review">
-          <div class="v3-heading">
+          <div class="v3-heading review-heading">
             <div><p class="eyebrow">Active Rules</p><h1>Daily review</h1><p>Rate one rule at a time using the intervals saved in Settings.</p></div>
-            <div class="v3-heading__actions"><span id="reviewDueBadge" class="badge">0 due</span><button id="viewSuspendedRulesBtn" class="button button--ghost" type="button">Suspended rules</button></div>
+            <div class="v3-heading__actions"><span id="reviewDueBadge" class="badge">0 due</span><button id="viewSuspendedRulesBtn" class="button button--ghost review-manage-button" type="button" aria-label="Suspended rules (0)" title="Suspended rules"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg><span class="review-manage-label">Suspended rules (<span id="reviewSuspendedCount">0</span>)</span></button></div>
           </div>
+          <div id="reviewTypeFilter" class="review-type-filter segmented-control" role="group" aria-label="Review note type"><button type="button" data-review-kind="all" aria-pressed="true">All cards</button><button type="button" data-review-kind="reasoning" aria-pressed="false">Reasoning cues</button><button type="button" data-review-kind="clinical" aria-pressed="false">Clinical pearls</button></div>
           <div id="reviewProgress" class="review-progress" aria-live="polite"></div>
-          <div id="reviewRulesList" class="review-list"></div>
+          <div id="reviewRulesList" class="review-list" role="region" aria-label="Current review card"></div>
         </div>
       </section>
 
       <section id="settingsView" class="view v3-view" aria-label="Settings and exports" hidden>
-        <div class="v3-scroll v3-scroll--narrow">
-          <div class="v3-heading"><div><p class="eyebrow">Settings</p><h1>Browser data, Google Drive sync and exports</h1><p>Data is stored locally in this browser by default. Google Drive app-data sync is optional; ThunderShadow makes no external AI calls.</p></div></div>
-          <section class="panel v3-panel preference-card">
-            <div><h2>Display mode</h2><p class="muted">Touch mode uses device-optimized phone and iPad layouts with larger tap targets on this browser only.</p></div>
-            <div class="segmented-control" role="group" aria-label="Display mode">
-              <button id="desktopModeBtn" type="button" data-ui-mode="desktop">Desktop</button>
-              <button id="touchModeBtn" type="button" data-ui-mode="touch">Touch</button>
-            </div>
-          </section>
-          <section class="panel v3-panel preference-card">
-            <div><h2>Theme</h2><p class="muted">Choose the appearance for this browser.</p></div>
-            <div class="segmented-control" role="group" aria-label="Color theme">
-              <button type="button" data-theme-choice="light">Light</button>
-              <button type="button" data-theme-choice="dark">Dark</button>
-              <button type="button" data-theme-choice="system">System</button>
-            </div>
-          </section>
-          <section class="panel v3-panel preference-card">
-            <div><h2>Rain effect</h2><p class="muted">Turn animated rain off on this device to reduce background rendering and battery/heat load. This preference stays on this browser only.</p></div>
-            <div class="segmented-control" role="group" aria-label="Rain effect">
-              <button type="button" data-rain-choice="on">On</button>
-              <button type="button" data-rain-choice="off">Off</button>
-            </div>
-          </section>
-          <form id="reviewIntervalForm" class="panel v3-panel review-intervals review-intervals--settings" aria-label="Review intervals">
-            <div class="review-intervals__intro"><h2>Review intervals</h2><p class="muted">Choose how many days each Active Rules answer waits before the rule returns.</p></div>
-            <div class="review-interval-grid">
-              <label class="review-interval review-interval--again"><span>Again</span><span><input id="reviewAgainDays" name="again" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
-              <label class="review-interval review-interval--hard"><span>Hard</span><span><input id="reviewHardDays" name="hard" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
-              <label class="review-interval review-interval--good"><span>Good</span><span><input id="reviewGoodDays" name="good" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
-              <label class="review-interval review-interval--easy"><span>Easy</span><span><input id="reviewEasyDays" name="easy" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
-            </div>
-            <button id="saveReviewIntervalsBtn" class="button button--subtle" type="submit">Save intervals</button>
-          </form>
-          <section class="panel v3-panel touch-section-preferences">
-            <div class="touch-section-preferences__intro"><h2>Phone logger sections</h2><p class="muted">Set whether optional logger sections are expanded or collapsed on phone. These persistent layout controls live here in Settings so the logging surface stays task-focused.</p></div>
-            <div class="touch-section-preference-row">
-              <div><strong>Reasoning Pattern</strong><span class="muted">Pattern choices</span></div>
-              <div class="segmented-control" role="group" aria-label="Reasoning Pattern default state">
-                <button type="button" data-touch-section-pref="pattern" data-expanded="false">Collapsed</button>
-                <button type="button" data-touch-section-pref="pattern" data-expanded="true">Expanded</button>
+        <div class="v3-scroll settings-scroll">
+          <div class="v3-heading settings-heading"><div><p class="eyebrow">Settings</p><h1>Make it yours</h1><p>Review cards, appearance, and your study data.</p></div></div>
+          <div id="settingsTabs" class="settings-tabs" role="tablist" aria-label="Settings categories">
+            <button id="settingsCardsTab" type="button" role="tab" data-settings-category="cards" aria-controls="settingsCardsPanel" aria-selected="true">Review cards</button>
+            <button id="settingsInterfaceTab" type="button" role="tab" data-settings-category="interface" aria-controls="settingsInterfacePanel" aria-selected="false" tabindex="-1">Interface</button>
+            <button id="settingsDataTab" type="button" role="tab" data-settings-category="data" aria-controls="settingsDataPanel" aria-selected="false" tabindex="-1">Data &amp; backups</button>
+          </div>
+          <div id="settingsCardsPanel" class="settings-category" role="tabpanel" aria-labelledby="settingsCardsTab">
+            <form id="reviewIntervalForm" class="panel v3-panel settings-card review-intervals review-intervals--settings" aria-label="Review intervals">
+              <div class="review-intervals__intro"><h2>Review intervals</h2><p class="muted">Days until a rated card returns.</p></div>
+              <div class="review-interval-grid">
+                <label class="review-interval review-interval--again"><span>Again</span><span><input id="reviewAgainDays" name="again" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+                <label class="review-interval review-interval--hard"><span>Hard</span><span><input id="reviewHardDays" name="hard" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+                <label class="review-interval review-interval--good"><span>Good</span><span><input id="reviewGoodDays" name="good" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
+                <label class="review-interval review-interval--easy"><span>Easy</span><span><input id="reviewEasyDays" name="easy" type="number" min="1" max="3650" inputmode="numeric" required><i>days</i></span></label>
               </div>
-            </div>
-            <div class="touch-section-preference-row">
-              <div><strong>Reasoning Note</strong><span class="muted">Free-text reasoning note</span></div>
-              <div class="segmented-control" role="group" aria-label="Reasoning Note default state">
-                <button type="button" data-touch-section-pref="note" data-expanded="false">Collapsed</button>
-                <button type="button" data-touch-section-pref="note" data-expanded="true">Expanded</button>
+              <div class="settings-card__actions"><button id="saveReviewIntervalsBtn" class="button button--subtle" type="submit">Save intervals</button></div>
+            </form>
+            <form id="reviewShortcutForm" class="panel v3-panel settings-card" aria-label="Review keyboard shortcuts">
+              <div><h2>Keyboard shortcuts</h2><p class="muted">Use a letter, number, or Space during daily review.</p></div>
+              <div class="review-shortcut-grid">
+                <label>Again<input name="again" maxlength="5" required autocomplete="off" aria-label="Again shortcut"></label>
+                <label>Hard<input name="hard" maxlength="5" required autocomplete="off" aria-label="Hard shortcut"></label>
+                <label>Good<input name="good" maxlength="5" required autocomplete="off" aria-label="Good shortcut"></label>
+                <label>Easy<input name="easy" maxlength="5" required autocomplete="off" aria-label="Easy shortcut"></label>
+                <label class="quick-good-shortcut"><span>Quick Good <small>“none” to disable</small></span><input name="quickGood" maxlength="5" required autocomplete="off" aria-label="Quick Good shortcut"></label>
               </div>
-            </div>
-            <div class="touch-section-preference-row">
-              <div><strong>Speed Flags</strong><span class="muted">Timing and pacing flags</span></div>
-              <div class="segmented-control" role="group" aria-label="Speed Flags default state">
-                <button type="button" data-touch-section-pref="speed" data-expanded="false">Collapsed</button>
-                <button type="button" data-touch-section-pref="speed" data-expanded="true">Expanded</button>
+              <div class="settings-card__actions"><button class="button button--subtle" type="submit">Save shortcuts</button><button id="resetReviewShortcutsBtn" class="button button--ghost" type="button">Reset defaults</button></div>
+            </form>
+            <section class="panel v3-panel settings-card settings-card--wide">
+              <div><h2>Card text size</h2><p class="muted">Adjust rule text and notes on this device. Saved automatically.</p></div>
+              <div class="review-text-size-control"><label for="reviewTextSize">Text size <output id="reviewTextSizeValue" for="reviewTextSize">100%</output></label><input id="reviewTextSize" type="range" min="80" max="140" step="5" value="100"><button id="resetReviewTextSizeBtn" class="button button--ghost" type="button">Reset</button></div>
+              <p class="review-text-preview">Pause and identify the finding that changes your next step.</p>
+            </section>
+            <section id="noteUpgradePanel" class="panel v3-panel settings-card settings-card--wide" hidden>
+              <div><h2>Upgrade older notes</h2><p class="muted">Add note IDs and recover source links from matching wording. Wording, review history, and due dates stay intact.</p><p id="noteUpgradeStatus" class="muted" aria-live="polite"></p></div>
+              <div class="settings-card__actions"><button id="upgradeNotesBtn" class="button button--primary" type="button">Upgrade notes</button></div>
+            </section>
+          </div>
+          <div id="settingsInterfacePanel" class="settings-category" role="tabpanel" aria-labelledby="settingsInterfaceTab" hidden>
+            <section class="panel v3-panel settings-card">
+              <div><h2>Appearance</h2><p class="muted">Display, theme, and rain are saved on this device.</p></div>
+              <div class="settings-preference-row">
+                <div><h3>Display mode</h3><p class="muted">Touch uses larger controls.</p></div>
+                <div class="segmented-control" role="group" aria-label="Display mode">
+                  <button id="desktopModeBtn" type="button" data-ui-mode="desktop">Desktop</button>
+                  <button id="touchModeBtn" type="button" data-ui-mode="touch">Touch</button>
+                </div>
               </div>
-            </div>
-          </section>
-          <section class="panel v3-panel drive-sync-card">
-            <div class="drive-sync-card__heading">
-              <div>
-                <h2>Google Drive sync <span class="badge">optional</span></h2>
-                <p id="cloudStatusText" class="muted">Browser storage is active. Connect Google once to enable private Drive app-data sync.</p>
-                <p id="cloudDetailText" class="muted">Local IndexedDB is the default store.</p>
+              <div class="settings-preference-row">
+                <h3>Theme</h3>
+                <div class="segmented-control segmented-control--three" role="group" aria-label="Color theme">
+                  <button type="button" data-theme-choice="light">Light</button>
+                  <button type="button" data-theme-choice="dark">Dark</button>
+                  <button type="button" data-theme-choice="system">System</button>
+                </div>
               </div>
-              <div class="v3-heading__actions">
+              <div class="settings-preference-row">
+                <h3>Rain effect</h3>
+                <div class="segmented-control" role="group" aria-label="Rain effect">
+                  <button type="button" data-rain-choice="on">On</button>
+                  <button type="button" data-rain-choice="off">Off</button>
+                </div>
+              </div>
+              <div class="settings-preference-row">
+                <div><label for="settingsUiScaleSelect">Desktop scale</label><p class="muted">Synced across devices; used in Desktop mode.</p></div>
+                <select id="settingsUiScaleSelect" aria-label="Desktop scale">
+                  <option value="80">80%</option><option value="85">85%</option><option value="90">90%</option><option value="95">95%</option><option value="100">100%</option><option value="105">105%</option><option value="110">110%</option><option value="115">115%</option><option value="120">120%</option>
+                </select>
+              </div>
+            </section>
+            <section class="panel v3-panel settings-card touch-section-preferences">
+              <div><h2>Phone logger</h2><p class="muted">Choose which optional sections open expanded.</p></div>
+              <div class="touch-section-preference-row">
+                <strong>Reasoning Pattern</strong>
+                <div class="segmented-control" role="group" aria-label="Reasoning Pattern default state">
+                  <button type="button" data-touch-section-pref="pattern" data-expanded="false">Collapsed</button>
+                  <button type="button" data-touch-section-pref="pattern" data-expanded="true">Expanded</button>
+                </div>
+              </div>
+              <div class="touch-section-preference-row">
+                <strong>Study note</strong>
+                <div class="segmented-control" role="group" aria-label="Study note default state">
+                  <button type="button" data-touch-section-pref="note" data-expanded="false">Collapsed</button>
+                  <button type="button" data-touch-section-pref="note" data-expanded="true">Expanded</button>
+                </div>
+              </div>
+              <div class="touch-section-preference-row">
+                <strong>Speed flags</strong>
+                <div class="segmented-control" role="group" aria-label="Speed Flags default state">
+                  <button type="button" data-touch-section-pref="speed" data-expanded="false">Collapsed</button>
+                  <button type="button" data-touch-section-pref="speed" data-expanded="true">Expanded</button>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div id="settingsDataPanel" class="settings-category" role="tabpanel" aria-labelledby="settingsDataTab" hidden>
+            <section class="panel v3-panel settings-card drive-sync-card">
+              <div><h2>Google Drive sync <span class="badge">optional</span></h2><p id="cloudStatusText" class="muted">Browser storage is active. Connect Google to sync.</p></div>
+              <div class="settings-card__actions">
                 <button id="cloudConnectBtn" class="button button--primary" type="button">Connect Google</button>
                 <button id="cloudSyncNowBtn" class="button button--ghost" type="button" disabled>Sync now</button>
                 <button id="cloudDisconnectBtn" class="button button--subtle" type="button" disabled>Disconnect</button>
               </div>
-            </div>
-            <p class="muted drive-sync-note">ThunderShadow stores synchronized study data only in Google Drive’s hidden appDataFolder. The shared Cloudflare Worker handles Google OAuth and token refresh; the browser stores only a Worker session token and temporary Google access token. IndexedDB remains the primary local database and continues working offline. Reopening the app silently refreshes Drive access without another Google popup until you disconnect or the Worker session expires. <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p>
-          </section>
-          <section class="panel v3-panel settings-grid">
-            <div><h2>Exports</h2><p class="muted">Download portable files generated from browser-local data.</p></div>
-            <button id="exportAllFormsBtn" class="button button--ghost" type="button">All-forms longitudinal TSV</button>
-            <button id="settingsExportRulesBtn" class="button button--ghost" type="button">Active-rules TSV</button>
-            <button id="settingsExportAnalyticsBtn" class="button button--ghost" type="button">Analytics JSON</button>
-            <button id="settingsExportChatgptBtn" class="button button--primary" type="button">ChatGPT Analysis Markdown</button>
-          </section>
-          <section class="panel v3-panel">
-            <div class="panel__heading panel__heading--compact"><div><h2>Verified browser snapshots</h2><p id="backupDirectoryText" class="muted">Loading backup configuration…</p></div><div class="v3-heading__actions"><button id="refreshBackupsBtn" class="button button--ghost" type="button">Refresh</button><button id="createBackupBtn" class="button button--primary" type="button">Back up now</button></div></div>
-            <div id="backupList" class="v3-list v3-list--compact"></div>
-          </section>
-          <section class="panel v3-panel portable-backup">
-            <div><h2>Encrypted portable backup</h2><p class="muted">AES-256-GCM archive with a PBKDF2-SHA-256 derived key. The passphrase is used only for this operation and is never saved.</p></div>
-            <label class="field"><span>Passphrase</span><input id="portablePassphrase" type="password" minlength="8" maxlength="1024" autocomplete="new-password" placeholder="At least 8 characters"></label>
-            <div class="v3-heading__actions">
-              <button id="exportEncryptedBtn" class="button button--primary" type="button">Export encrypted archive</button>
-              <button id="previewEncryptedBtn" class="button button--ghost" type="button">Preview encrypted import</button>
-              <input id="encryptedImportInput" type="file" accept=".tsbackup,application/octet-stream" hidden>
-            </div>
-            <p id="portableBackupStatus" class="muted" aria-live="polite"></p>
-          </section>
-          <section class="panel v3-panel"><h2>Interface scale</h2><p class="muted">Desktop UI uses the − / Fit / + header controls. Touch UI uses fixed device-optimized sizing; the desktop scale remains stored locally.</p></section>
+              <details class="settings-details"><summary>Sync details &amp; privacy</summary><p id="cloudDetailText" class="muted">Local IndexedDB is the default store.</p><p class="muted">Study data syncs to Google Drive’s private app-data folder. Local saves work offline. Disconnecting keeps your data. ThunderShadow makes no external AI calls. <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a></p></details>
+            </section>
+            <section class="panel v3-panel settings-card portable-backup">
+              <div><h2>Encrypted portable backup</h2><p class="muted">Download a full backup or preview one before restoring. Your passphrase is never saved.</p></div>
+              <label class="field"><span>Passphrase</span><input id="portablePassphrase" type="password" minlength="8" maxlength="1024" autocomplete="new-password" placeholder="At least 8 characters"></label>
+              <div class="settings-card__actions">
+                <button id="exportEncryptedBtn" class="button button--primary" type="button">Export backup</button>
+                <button id="previewEncryptedBtn" class="button button--ghost" type="button">Preview import</button>
+                <input id="encryptedImportInput" type="file" accept=".tsbackup,application/octet-stream" hidden>
+              </div>
+              <p id="portableBackupStatus" class="muted" aria-live="polite"></p>
+            </section>
+            <section class="panel v3-panel settings-card">
+              <div><h2>Exports</h2><p class="muted">Files generated from your browser’s study data.</p></div>
+              <div class="settings-export-grid">
+                <button id="exportAllFormsBtn" class="button button--ghost" type="button">Form logs TSV</button>
+                <button id="settingsExportRulesBtn" class="button button--ghost" type="button">Review cards TSV</button>
+                <button id="settingsExportAnalyticsBtn" class="button button--ghost" type="button">Analytics JSON</button>
+                <button id="settingsExportChatgptBtn" class="button button--ghost" type="button">Analysis Markdown</button>
+              </div>
+            </section>
+            <section class="panel v3-panel settings-card">
+              <div><h2>Browser snapshots</h2><p id="backupDirectoryText" class="muted">Loading backup configuration…</p></div>
+              <div class="settings-card__actions"><button id="createBackupBtn" class="button button--primary" type="button">Back up now</button><button id="refreshBackupsBtn" class="button button--ghost" type="button">Refresh</button></div>
+              <details class="settings-details"><summary>Saved snapshots</summary><div id="backupList" class="v3-list v3-list--compact"></div></details>
+            </section>
+          </div>
         </div>
       </section>
     </main>
@@ -659,13 +700,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=27" defer></script>
-  <script src="js/reasoning.js?v=27" defer></script>
-  <script src="js/analytics.js?v=27" defer></script>
-  <script src="js/browser-api.js?v=27" defer></script>
-  <script src="js/sync.js?v=27" defer></script>
-  <script src="js/app.js?v=27" defer></script>
-  <script src="js/v3.js?v=27" defer></script>
-  <script src="js/cloud-sync.js?v=27" defer></script>
+  <script src="js/config.js?v=36" defer></script>
+  <script src="js/reasoning.js?v=36" defer></script>
+  <script src="js/analytics.js?v=36" defer></script>
+  <script src="js/browser-api.js?v=36" defer></script>
+  <script src="js/sync.js?v=36" defer></script>
+  <script src="js/app.js?v=36" defer></script>
+  <script src="js/v3.js?v=36" defer></script>
+  <script src="js/cloud-sync.js?v=36" defer></script>
 </body>
 </html>

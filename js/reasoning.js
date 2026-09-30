@@ -71,7 +71,15 @@ function canonicalSpeedFlags(values, pattern = "") {
   return [...new Set(mapped)];
 }
 
+// Older patterned notes retain their original deck classification.
+function canonicalNoteKind(value, pattern = "") {
+  return ["clinical", "reasoning"].includes(value) ? value : (canonicalPattern(pattern) ? "reasoning" : "clinical");
+}
+function noteIdFor(formId, entryNumber) { return `${formId}:entry-${entryNumber}`; }
+
 window.ThunderShadowReasoning = {
+  canonicalNoteKind,
+  noteIdFor,
   LEGACY_BLANK_PATTERNS,
   LEGACY_PATTERN_MAP,
   LEGACY_PATTERN_TO_SPEED,

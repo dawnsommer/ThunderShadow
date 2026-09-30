@@ -44,12 +44,13 @@
   }
 
   async function mutate(path, { method = "PUT", body, entity = null } = {}) {
+    const draftBefore = entity ? getDraft(entity) : null;
     const response = await window.ThunderShadowBrowserApi.request(path, { method, body: body == null || typeof body === "string" ? body : JSON.stringify(body), headers: { "Content-Type": "application/json" } });
     let payload = null;
     if (response.status !== 204) payload = await response.json().catch(() => null);
     if (!response.ok) throw new Error(payload?.error?.message || `Save failed (${response.status})`);
     lastSyncedAt = new Date().toISOString();
-    if (entity) clearDraft(entity);
+    if (entity && JSON.stringify(getDraft(entity)) === JSON.stringify(draftBefore)) clearDraft(entity);
     await updateStatus();
     return { data: payload, queued: false, conflict: false };
   }

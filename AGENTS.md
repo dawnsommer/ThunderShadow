@@ -1,10 +1,10 @@
 # ThunderShadow project handoff
 
-Last refreshed: 2026-09-13. Read this before changing the project. Source code and the current `git diff` override this summary if they disagree.
+Last refreshed: 2026-09-30. Read this before changing the project. Source code and the current `git diff` override this summary if they disagree.
 
 ## Snapshot
 
-- Current release: `19.2.0-ui-refinements` (`VERSION`).
+- Current release: `20.3.0-card-sizing` (`VERSION`).
 - Product: framework-free, static, installable NBME/CMS error-logging PWA deployed from the repository root on GitHub Pages.
 - Production URL/OAuth return URL: `https://dawnsommer.github.io/ThunderShadow/`.
 - No build step, Node server, package manager, Firebase, Firestore, SQLite, or backend API exists in this edition. The old server files are intentionally deleted.
@@ -31,7 +31,7 @@ Also confirm every `service-worker.js` shell asset exists, HTML IDs remain uniqu
 ## Runtime map
 
 - `index.html`: complete app shell, six primary views (form library, logger, rule library, analysis, active-rule review, settings), dialogs, and script load order.
-- `css/styles.css`: all theming/layout; later version blocks override earlier rules. It includes touch v12-v16, rain control v18, desktop optimization v18.6, the v19.1 compact rule-deck/review surfaces, and v19.2 review/library refinements. Preserve ordering when editing overrides.
+- `css/styles.css`: all theming/layout; later version blocks override earlier rules. It includes touch v12-v16, rain control v18, desktop optimization v18.6, the v19.1 compact rule-deck/review surfaces, v19.2 review/library refinements, v20 note tags/readable copy/three-column desktop form cards, v20.1 compact Settings categories, and v20.2 phone navigation/review layout. Preserve ordering when editing overrides.
 - `js/theme-init.js`: applies theme/UI/rain attributes before paint.
 - `js/uuid.js`: UUID helper with Web Crypto fallback.
 - `js/config.js`: public cloud coordinates only (app ID, Worker URL, return URL, Drive scope); never put secrets here.
@@ -54,19 +54,23 @@ IndexedDB is the immediate source of truth. Database `ThunderShadowBrowserDB`, s
 
 - `forms`: metadata plus embedded `entries`/compatibility alias `questions`.
 - `rules`: saved canonical rules, aliases, review history, status, notes, and source pointers.
-- `settings`: synced desktop `ui_scale` and the four review intervals (`again`, `hard`, `good`, and `easy`, in days).
+- `settings`: synced desktop `ui_scale` and the four review intervals (`again`, `hard`, `good`, and `easy`, in days), plus configurable `review_shortcuts`.
 - `backups`: verified full JSON snapshots (14 retained; scheduled at most every 24 hours during idle time).
 - `meta`: tombstones and backup timestamps.
 
-Entries have stable monotonic `entryNumber`, error code 1-7, one canonical reasoning pattern, zero or more speed flags, reasoning note (`manualRule` is a compatibility alias), soft-delete state, revision, and timestamps. Forms and entries are normalized defensively for old backup/Drive shapes. Permanent form/rule/entry deletions create timestamped tombstones so another device cannot resurrect them.
+Entries have stable monotonic `entryNumber`, error code 1-7, one canonical reasoning pattern, zero or more speed flags, study note (`reasoningNote` / compatibility alias `manualRule`), `noteKind` (`clinical` or `reasoning`), deterministic `noteId` (`<form-id>:entry-<number>`), soft-delete state, revision, and timestamps. Forms and entries are normalized defensively for old backup/Drive shapes. Permanent form/rule/entry deletions create timestamped tombstones so another device cannot resurrect them.
 
 Storage resilience is deliberate: IndexedDB opens time out after 3.5 seconds and transactions after 6.5 seconds; failure switches to a new recovery database without deleting the original. If recovery also fails, `localStorage` emergency stores keep forms/rules/settings/meta working. Full browser snapshots are disabled in emergency mode to avoid quota exhaustion. Recovery clears the cloud dirty ledger and cached Drive index so an empty fallback store cannot be uploaded as authoritative deletion.
 
-Device-only `localStorage` preferences include theme, desktop/touch UI, rain on/off, phone section expansion, drafts, lightweight form cache, recovery markers, and cloud/session metadata. Only `uiScale` is in the synced package. Do not put OAuth/session values in exports, backups, logs, or Drive objects.
+Device-only `localStorage` preferences include theme, desktop/touch UI, rain on/off, phone section expansion, drafts, lightweight form cache, recovery markers, and cloud/session metadata. Desktop scale, review intervals, and review shortcuts are included in synced settings. Do not put OAuth/session values in exports, backups, logs, or Drive objects.
 
 Core browser-API families: forms and entries CRUD/restore/permanent delete/TSV; JSON backup and destructive restore; browser snapshots/list/preview/download/restore; encrypted `.tsbackup` export/import preview; analytics; rules/merge/review/suspend/delete; longitudinal TSV, active-rules TSV, analytics JSON, ChatGPT-analysis Markdown; settings. Restore is intentionally destructive after validation and creates a safety snapshot first. Portable archives use PBKDF2-SHA-256 (240,000 iterations) plus AES-256-GCM; passphrases are never stored.
 
-UI guarantees: desktop scale 80-120%; explicit Desktop/Touch modes; light/dark/system themes; device-local rain toggle; phone uses `visualViewport`, safe areas, one renderable primary view, an internal logger scroll surface, persistent optional-section preferences, and phone-native analysis tables. The form-library cards are compact, and the header display-mode control uses target-specific tablet/desktop icons. The rule library can import every unsaved Reasoning Note or a selected subset, displays saved rules as compact expandable rows, and separates suspended rules. Active Rules presents one due card at a time, preserves authored line breaks in rule and note text, and schedules Again/Hard/Good/Easy directly from the four intervals configured in Settings. Logger shortcuts: `1-7` error code, `Shift+0-7` pattern, `Alt/Option+0-6` speed flags, `[`/`]` navigation, `Cmd/Ctrl+Enter` save-next, and selected-code copy with `Cmd/Ctrl+C`.
+UI guarantees: desktop scale 80-120%; explicit Desktop/Touch modes; light/dark/system themes; device-local rain toggle; phone uses `visualViewport`, safe areas, one renderable primary view, an internal logger scroll surface, persistent optional-section preferences, and phone-native analysis tables. Desktop form-library cards use three columns and four compact rows in the available grid height (additional rows scroll; very short windows retain a 90px row minimum), with readable supporting copy and complete internal-analysis counters. The header display-mode control uses target-specific tablet/desktop icons. The header title includes a “by Bladelord” byline without a subtitle. Study notes use one clickable Clinical pearl / Reasoning cue tag in the logger; cues display their selected pattern. The rule library imports notes with or without patterns, edits saved-card tags/patterns, searches wording/tags/source forms, displays compact expandable rows, and separates suspended rules. Saved cards retain source form/name/entry/note IDs; both log and active-rule TSVs include note type and provenance. The Active Rules suspended-rules button opens the Rule Library at its suspended section while keeping the app header and navigation in place. Active Rules presents one due card at a time, preserves authored line breaks in rule and note text, and schedules Again/Hard/Good/Easy directly from the four intervals configured in Settings. Desktop review shows the source form/entry, occurrences, last-seen date, and Suspend at the top of each card; Source & details is reserved for phone/compact-landscape Touch layouts. Desktop review places the heading, card filters, due count, and suspended-rules control on one row, omits introductory copy and rating-key labels, and shows the source beside Suspend in the card top bar; the desktop card fills the remaining height with internal text scrolling and ratings at the bottom; phone review uses slightly smaller main card text. Review filters select all cards, Reasoning cues, or Clinical pearls. Default review keys are 1/2/3/4 for Again/Hard/Good/Easy plus Space for Good; keys are editable and synced through Settings, and ignore typing/modifiers/repeats. Logger shortcuts: `1-7` error code, `Shift+0-7` pattern, `Alt/Option+0-6` speed flags, `[`/`]` navigation, `Cmd/Ctrl+Enter` save-next, and selected-code copy with `Cmd/Ctrl+C`.
+
+Phone chrome shows the complete ThunderShadow title and all five primary tabs without horizontal scrolling, including while logging. The expanded entry navigator uses one column and wraps form names. Phone/compact-landscape review fills the remaining viewport: only card text/details scroll, while Again/Hard/Good/Easy stay in a bottom rating dock with configured intervals. Tags remain visible at the card top; source/history/Suspend live under Source & details. Review focus follows the next card; shortcuts preserve normal navigation/details control keys. Rating saves disable controls until completion.
+
+Settings uses accessible tabs for **Review cards**, **Interface**, and **Data & backups**, retaining the selected category while the app stays open. Desktop uses paired compact cards; phone stacks them with larger controls. Review cards includes a live 80–140% text-size slider with Reset, saved locally per device and applied to review wording and notes on desktop and phone. Interface includes a synced Desktop scale selector. Sync details and saved snapshots expand on demand. Existing backup preview/restore confirmations remain required.
 
 ## Cloud contract and invariants
 
@@ -87,7 +91,9 @@ Never weaken these invariants: local-first operation, non-destructive cloud merg
 
 Publish repository root from `main` with GitHub Pages. If the production path changes, update both Worker allow-list/configuration and `js/config.js`. On Firebase-to-Drive migration, first connect a browser whose IndexedDB is authoritative, seed Drive, then verify a second-browser restore before clearing the first browser.
 
-Current cache release is `thundershadow-github-shell-v27`; both the shell and `index.html` use code/style query key `?v=27`.
+Current cache release is `thundershadow-github-shell-v36`; both the shell and `index.html` use code/style query key `?v=36`. JSON package version is 7; versions 1–6 remain accepted, with IndexedDB schema version 1 unchanged.
+
+Settings shows “Upgrade notes” only when older metadata remains. The idempotent upgrade creates a safety snapshot when IndexedDB is available, fills note tags/IDs and exact-match source links, and preserves rule IDs, wording, review history, and due dates. Older patterned notes remain Reasoning cues; unpatterned notes become Clinical pearls. Unknown/deleted sources remain unavailable instead of being guessed. Local note saves are serialized and keep newer edits/drafts when an older save completes.
 
 There is no automated integration suite after the server removal. The conflict dialog and `handleServerEvent` compatibility paths remain in the UI, while `js/sync.js` conflict/pending methods are no-ops; do not describe them as active multi-client conflict UI without implementing and testing that behavior.
 
