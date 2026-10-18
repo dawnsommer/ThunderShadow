@@ -573,6 +573,41 @@
     const rows = rules.filter((rule) => rule.status !== "archived").map((rule) => [rule.id, rule.patternLabel, rule.ruleText, rule.status, rule.occurrenceCount, rule.firstSeen, rule.lastSeen, rule.nextReviewAt || "", rule.notes, rule.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern", rule.sourceFormId, rule.sourceFormName, rule.sourceQuestionNumber, rule.sourceNoteId, JSON.stringify(rule.occurrences || [])].map((value) => tsvEscape(value)).join("\t"));
     return [headers.join("\t"), ...rows].join("\n");
   }
+  function ankiHtml(value) {
+    return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\r\n?|\n/g, "<br>").replace(/\t/g, "&#9;");
+  }
+  function ankiTsvCell(value) {
+    const text = String(value ?? "");
+    return /["\t\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+  function ankiSourceLabel(source) {
+    const name = source.formName || source.sourceFormName;
+    const entry = source.entryNumber || source.questionNumber || source.sourceQuestionNumber;
+    return name ? `${name}${entry ? ` · Entry ${entry}` : ""}` : "Source unavailable";
+  }
+  function activeRulesAnkiTsv(rules) {
+    const active = rules.filter((rule) => rule.status !== "archived");
+    if (!active.length) throw new Error("No active saved rules to export. Save rules in the Rule Library or resume suspended rules first.");
+    // The first field is a stable external ID. Anki recommends this over
+    // assigning our own values to its internal GUID; Front/Back stay unchanged.
+    const headers = ["#separator:Tab", "#html:true", "#notetype:ThunderShadow Basic", "#tags column:4", "#columns:ThunderShadowID\tFront\tBack\tTags"];
+    const tagPart = (value) => String(value || "").normalize("NFKC").replace(/[^\p{L}\p{N}_-]+/gu, "_").replace(/^_+|_+$/g, "");
+    const rows = active.map((rule) => {
+      const kind = rule.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern";
+      const pattern = PATTERNS.find((item) => item.value === rule.pattern);
+      const back = [];
+      if (String(rule.notes || "").trim()) back.push(`<div>${ankiHtml(rule.notes)}</div><br>`);
+      back.push(`<div><b>Kind:</b> ${kind}</div>`);
+      if (pattern) back.push(`<div><b>Reasoning pattern:</b> ${ankiHtml(rule.patternLabel)}</div>`);
+      back.push(`<div><b>Source:</b> ${ankiHtml(ankiSourceLabel(rule))}</div>`);
+      const otherSources = (rule.occurrences || []).filter((source) => source.formId !== rule.sourceFormId || Number(source.entryNumber || source.questionNumber) !== Number(rule.sourceQuestionNumber));
+      if (otherSources.length) back.push(`<div><b>Also seen in:</b></div><ul>${otherSources.map((source) => `<li>${ankiHtml(ankiSourceLabel(source))}</li>`).join("")}</ul>`);
+      const formNames = [rule.sourceFormName, ...(rule.occurrences || []).map((source) => source.formName)];
+      const tags = ["ThunderShadow", `ThunderShadow::${kind.replace(/ /g, "_")}`, ...(pattern ? [`ThunderShadow::${pattern.code}`] : []), ...formNames.filter(Boolean).map(tagPart).filter(Boolean).map((name) => `ThunderShadow::Form::${name}`)];
+      return [ankiHtml(`thundershadow:${rule.id}`), ankiHtml(rule.ruleText), back.join(""), [...new Set(tags)].join(" ")].map(ankiTsvCell).join("\t");
+    });
+    return [...headers, ...rows].join("\n");
+  }
   function analysisMarkdown(analytics, rules) {
     const lines = [
       "# ThunderShadow ChatGPT Analysis Package", "", `Generated: ${analytics.generatedAt}`, "", "## Database summary",
@@ -1096,6 +1131,7 @@
 
       if (pathname.endsWith("/api/export/all-forms.tsv") && method === "GET") return textResponse(allFormsToTsv(await allForms()), "text/tab-separated-values; charset=utf-8", "ThunderShadow_Longitudinal_Log.tsv");
       if (pathname.endsWith("/api/export/active-rules.tsv") && method === "GET") return textResponse(activeRulesTsv(await allHydratedRules()), "text/tab-separated-values; charset=utf-8", "ThunderShadow_Active_Rules.tsv");
+      if (pathname.endsWith("/api/export/anki.tsv") && method === "GET") return textResponse(activeRulesAnkiTsv(await allHydratedRules()), "text/tab-separated-values; charset=utf-8", "ThunderShadow_Anki.tsv");
       if (pathname.endsWith("/api/export/analytics.json") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; return textResponse(JSON.stringify(calculateAnalytics(await allForms(), filters), null, 2), "application/json; charset=utf-8", "ThunderShadow_Analytics.json"); }
       if (pathname.endsWith("/api/export/chatgpt-analysis.md") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; const analytics = calculateAnalytics(await allForms(), filters); return textResponse(analysisMarkdown(analytics, await allHydratedRules()), "text/markdown; charset=utf-8", "ThunderShadow_ChatGPT_Analysis.md"); }
 

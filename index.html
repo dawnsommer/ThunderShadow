@@ -11,19 +11,19 @@
   <meta name="application-name" content="ThunderShadow">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=38"></script>
-  <script src="js/uuid.js?v=38"></script>
+  <script src="js/theme-init.js?v=42"></script>
+  <script src="js/uuid.js?v=42"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=38">
+  <link rel="stylesheet" href="css/styles.css?v=42">
+  <link rel="stylesheet" href="css/storm.css?v=42">
 </head>
 <body>
-  <div class="storm" aria-hidden="true">
-    <div class="storm__clouds"></div>
-    <div class="storm__rain storm__rain--near"></div>
-    <div class="storm__rain storm__rain--far"></div>
-    <div class="storm__flash"></div>
+  <div class="storm-scene" aria-hidden="true">
+    <div class="storm-scene__clouds"></div>
+    <div class="storm-scene__rain"></div>
+    <div class="storm-scene__lightning"></div>
   </div>
 
   <div id="appShell" class="app-shell" data-scale="100">
@@ -35,29 +35,6 @@
           <div class="brand__byline">by Bladelord</div>
 
         </div>
-      </div>
-
-      <div id="libraryTopActions" class="topbar__center">
-        <button id="newFormTopBtn" class="button button--primary" type="button">
-          <span aria-hidden="true">＋</span>
-          New form
-        </button>
-      </div>
-
-      <div id="loggerTopActions" class="topbar__center topbar__center--logger" hidden>
-        <button id="topPrevBtn" class="button button--ghost button--nav" type="button" aria-label="Previous entry">
-          <span aria-hidden="true">←</span>
-          Previous
-        </button>
-        <div class="question-position" aria-live="polite">
-          <span id="topQuestionNumber">1</span>
-          <span class="question-position__divider">of</span>
-          <span id="topQuestionTotal">50</span>
-        </div>
-        <button id="topNextBtn" class="button button--ghost button--nav" type="button" aria-label="Next entry">
-          Next
-          <span aria-hidden="true">→</span>
-        </button>
       </div>
 
       <div class="topbar__tools">
@@ -78,7 +55,7 @@
           <button id="zoomFitBtn" class="zoom-control__value" type="button" aria-label="Fit interface to window">100%</button>
           <button id="zoomInBtn" class="icon-button" type="button" aria-label="Zoom in">＋</button>
         </div>
-        <button id="homeBtn" class="icon-button" type="button" aria-label="Open form library" hidden>
+        <button id="homeBtn" class="icon-button" type="button" aria-label="Open form library" title="Open logged forms">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H4.5A1.5 1.5 0 0 1 3 19.5z"/></svg>
         </button>
         <button id="backupBtn" class="icon-button" type="button" aria-label="Backup all data">
@@ -88,6 +65,19 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0 4 4m-4-4-4 4M5 8V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3"/></svg>
         </button>
         <input id="restoreInput" type="file" accept="application/json,.json" hidden>
+      </div>
+      <div id="loggerTopActions" class="logger-entry-nav" role="group" aria-label="Entry navigation" hidden>
+        <button id="topPrevBtn" class="entry-nav-button" type="button" aria-label="Previous entry">
+          <span aria-hidden="true">‹</span>
+        </button>
+        <div class="question-position" aria-live="polite" aria-atomic="true">
+          <span id="topQuestionNumber">Entry 1</span>
+          <span class="question-position__divider">of</span>
+          <span id="topQuestionTotal">50</span>
+        </div>
+        <button id="topNextBtn" class="entry-nav-button" type="button" aria-label="Next entry">
+          <span aria-hidden="true">›</span>
+        </button>
       </div>
     </header>
 
@@ -103,28 +93,37 @@
       <section id="libraryView" class="view view--library" aria-label="Form library">
         <div class="library-layout">
           <section class="panel panel--library-list">
-            <div class="panel__heading">
+            <div class="panel__heading forms-library-heading">
               <div>
-                <p class="eyebrow">Your logged forms</p>
-                <h1>ThunderShadow</h1>
+                <p class="eyebrow">Logger</p>
+                <h1>Your logged forms</h1>
               </div>
-              <div class="panel__heading-actions">
-                <label class="search-box">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                  <input id="formSearchInput" type="search" placeholder="Search forms" autocomplete="off">
-                </label>
-                <button id="newFormBtn" class="button button--primary" type="button">New form</button>
+              <button id="newFormBtn" class="button button--primary new-form-button" type="button" aria-label="New form">
+                <span class="new-form-button__icon" aria-hidden="true">＋</span>
+                <span><strong>New form</strong><small>Start a new log</small></span>
+              </button>
+            </div>
+            <div class="form-library-toolbar">
+              <div id="formTypeTabs" class="form-type-tabs" role="tablist" aria-label="Form exam type">
+                <button id="nbmeFormsTab" type="button" role="tab" data-form-type="nbme" aria-controls="formsBrowserPanel" aria-selected="true">NBME <span data-form-count="nbme">0</span></button>
+                <button id="cmsFormsTab" type="button" role="tab" data-form-type="cms" aria-controls="formsBrowserPanel" aria-selected="false" tabindex="-1">CMS <span data-form-count="cms">0</span></button>
+                <button id="otherFormsTab" type="button" role="tab" data-form-type="other" aria-controls="formsBrowserPanel" aria-selected="false" tabindex="-1" hidden>Other <span data-form-count="other">0</span></button>
               </div>
+              <label class="search-box">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                <input id="formSearchInput" type="search" aria-label="Search logged forms" placeholder="Search forms" autocomplete="off">
+              </label>
             </div>
-
-            <div id="emptyLibrary" class="empty-state" hidden>
-              <div class="empty-state__icon" aria-hidden="true">ϟ</div>
-              <h2>No forms yet</h2>
-              <p>Create a form and log only the questions worth reviewing.</p>
-              <button id="emptyNewFormBtn" class="button button--primary" type="button">Create first form</button>
+            <p class="forms-sort-caption">Most recent form date first</p>
+            <div id="formsBrowserPanel" class="forms-browser-panel" role="tabpanel" aria-labelledby="nbmeFormsTab" tabindex="0">
+              <div id="emptyLibrary" class="empty-state" hidden>
+                <div class="empty-state__icon" aria-hidden="true">ϟ</div>
+                <h2 id="emptyLibraryTitle">No forms yet</h2>
+                <p id="emptyLibraryMessage">Create a form and log only the questions worth reviewing.</p>
+                <button id="emptyNewFormBtn" class="button button--primary" type="button">Create first form</button>
+              </div>
+              <div id="formsGrid" class="forms-grid" aria-live="polite"></div>
             </div>
-
-            <div id="formsGrid" class="forms-grid" aria-live="polite"></div>
           </section>
 
           <aside class="panel panel--analysis">
@@ -244,21 +243,14 @@
           </aside>
 
           <section class="panel logger-panel">
-            <div class="logger-panel__header">
-              <div>
-                <p class="eyebrow">Rapid log</p>
-                <h2>Entry <span id="currentQuestionNumber">1</span></h2>
-              </div>
-              <div class="entry-delete-actions"><button id="clearQuestionBtn" class="button button--danger-ghost" type="button">Delete Entry</button><button id="permanentDeleteEntryBtn" class="button button--danger" type="button" hidden>Delete permanently</button></div>
-            </div>
-
             <div class="logger-content">
               <section class="choice-section choice-section--errors">
                 <div class="section-heading">
                   <div>
                     <h3>Error code</h3>
-                    <p>What type of result or miss occurred? · press 1–7</p>
+                    <p>Choose one · keys 1–7</p>
                   </div>
+                  <div class="entry-delete-actions"><button id="clearQuestionBtn" class="button button--danger-ghost" type="button" title="Delete current entry">Delete Entry</button><button id="permanentDeleteEntryBtn" class="button button--danger" type="button" hidden>Delete permanently</button></div>
                 </div>
                 <div id="errorCodeRows" class="option-stack option-stack--errors"></div>
               </section>
@@ -491,7 +483,7 @@
                 </div>
               </div>
               <div class="settings-preference-row">
-                <h3>Rain effect</h3>
+                <div><h3>Rain effect</h3><p class="muted">Off stops rain, moving clouds, and lightning.</p></div>
                 <div class="segmented-control" role="group" aria-label="Rain effect">
                   <button type="button" data-rain-choice="on">On</button>
                   <button type="button" data-rain-choice="off">Off</button>
@@ -550,10 +542,20 @@
               <p id="portableBackupStatus" class="muted" aria-live="polite"></p>
             </section>
             <section class="panel v3-panel settings-card">
-              <div><h2>Exports</h2><p class="muted">Files generated from your browser’s study data.</p></div>
+              <div><h2>Anki &amp; study exports</h2><p class="muted">Export every active saved rule as a front/back Anki card, including future-due cards. Suspended rules are excluded.</p></div>
+              <div class="settings-card__actions"><button id="exportAnkiBtn" class="button button--primary" type="button" aria-describedby="ankiExportFormat">Export Anki TSV</button></div>
+              <p id="ankiExportFormat" class="muted">Front: rule wording. Back: your notes and source context. Tags: kind, reasoning pattern, and source forms. Stable IDs let later imports update or skip existing cards.</p>
+              <details class="settings-details">
+                <summary>Anki setup &amp; repeat imports</summary>
+                <p class="muted">One-time setup in Anki Desktop: open Tools → Manage Note Types → Add, clone <strong>Basic</strong>, and name it <strong>ThunderShadow Basic</strong>. In Fields, add <strong>ThunderShadowID</strong> and reposition it to field 1. Keep <strong>Front</strong> and <strong>Back</strong> after it and leave the Basic card templates unchanged, so the ID stays off the card.</p>
+                <p class="muted">Import the TSV using <strong>ThunderShadow Basic</strong>. Map columns to <strong>ThunderShadowID / Front / Back / Tags</strong>, with Tab separator and HTML enabled (Anki 2.1.54+ reads the file headers). Choose your deck and match scope <strong>Note type</strong>.</p>
+                <p class="muted">For later exports, keep the same note type and ID field. Set Existing notes to <strong>Update</strong> to refresh content while keeping Anki review scheduling, or <strong>Preserve</strong> to skip existing cards. Avoid Duplicate. Editing rule wording in ThunderShadow keeps its ID.</p>
+                <p class="muted">This is a one-way content export. ThunderShadow schedules and review history are not imported into Anki. Suspending, deleting, or merging a rule later does not remove its old Anki card. <a href="https://docs.ankiweb.net/importing/text-files.html" target="_blank" rel="noopener">Anki import guide</a></p>
+              </details>
+              <h3>Study data files</h3>
               <div class="settings-export-grid">
                 <button id="exportAllFormsBtn" class="button button--ghost" type="button">Form logs TSV</button>
-                <button id="settingsExportRulesBtn" class="button button--ghost" type="button">Review cards TSV</button>
+                <button id="settingsExportRulesBtn" class="button button--ghost" type="button">Rules data TSV</button>
                 <button id="settingsExportAnalyticsBtn" class="button button--ghost" type="button">Analytics JSON</button>
                 <button id="settingsExportChatgptBtn" class="button button--ghost" type="button">Analysis Markdown</button>
               </div>
@@ -734,13 +736,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=38" defer></script>
-  <script src="js/reasoning.js?v=38" defer></script>
-  <script src="js/analytics.js?v=38" defer></script>
-  <script src="js/browser-api.js?v=38" defer></script>
-  <script src="js/sync.js?v=38" defer></script>
-  <script src="js/app.js?v=38" defer></script>
-  <script src="js/v3.js?v=38" defer></script>
-  <script src="js/cloud-sync.js?v=38" defer></script>
+  <script src="js/config.js?v=42" defer></script>
+  <script src="js/reasoning.js?v=42" defer></script>
+  <script src="js/analytics.js?v=42" defer></script>
+  <script src="js/browser-api.js?v=42" defer></script>
+  <script src="js/sync.js?v=42" defer></script>
+  <script src="js/app.js?v=42" defer></script>
+  <script src="js/v3.js?v=42" defer></script>
+  <script src="js/cloud-sync.js?v=42" defer></script>
 </body>
 </html>
