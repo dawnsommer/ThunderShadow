@@ -2090,8 +2090,8 @@ html[data-theme="light"] .segmented-control button.is-active { color: #fff; }
 .app-shell[data-scale="110"] .brand__tagline,
 .app-shell[data-scale="115"] .brand__tagline,
 .app-shell[data-scale="120"] .brand__tagline,
-.app-shell[data-scale="115"] .mode-toggle span:last-child,
-.app-shell[data-scale="120"] .mode-toggle span:last-child { display: none; }
+.app-shell[data-scale="115"] #uiModeToggleText,
+.app-shell[data-scale="120"] #uiModeToggleText { display: none; }
 .app-shell[data-scale="115"] .topbar,
 .app-shell[data-scale="120"] .topbar { gap: 8px; padding-inline: 10px; }
 .app-shell[data-scale="115"] .topbar__center--logger,
@@ -2243,7 +2243,7 @@ html[data-ui-mode="touch"] .logger-panel__footer .button { min-height: 48px; }
 
 @media (max-width: 900px) {
   .mode-toggle { flex-basis: 38px; width: 38px; padding-inline: 0; }
-  .mode-toggle span:last-child { display: none; }
+  #uiModeToggleText { display: none; }
   .area-nav { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
   .area-nav::-webkit-scrollbar { display: none; }
   .area-nav button { min-width: 78px; padding-inline: 10px; }
@@ -4624,3 +4624,26 @@ html[data-ui-mode="desktop"] .speed-button > span:first-child { min-width: 0; ov
   html[data-ui-mode="touch"] .logger-content { grid-template-rows: max-content max-content; align-items: start; align-content: start; }
   html[data-ui-mode="touch"] .logger-content > .choice-section { align-self: start; }
 }
+
+/* v22 — automatic rule library and a display switch with explicit compact mode. */
+#ruleLibraryTabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html[data-ui-mode="desktop"] .topbar #uiModeToggleBtn {
+  flex: 0 0 104px;
+  width: 104px;
+  min-width: 104px;
+  max-width: 104px;
+  padding-inline: 9px;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+#uiModeToggleBtn .mode-toggle__icon { flex: 0 0 18px; width: 18px; min-width: 18px; }
+#uiModeToggleText { flex: 0 0 auto; min-width: 0; white-space: nowrap; line-height: 1.2; }
+html[data-ui-mode="desktop"] .app-shell:is([data-scale="110"], [data-scale="115"], [data-scale="120"]) .topbar #uiModeToggleBtn { flex-basis: 38px; width: 38px; min-width: 38px; max-width: 38px; padding-inline: 8px; }
+html[data-ui-mode="desktop"] .app-shell:is([data-scale="110"], [data-scale="115"], [data-scale="120"]) #uiModeToggleText { display: none; }
+@media (max-width: 1100px) {
+  html[data-ui-mode="desktop"] .topbar #uiModeToggleBtn { flex-basis: 38px; width: 38px; min-width: 38px; max-width: 38px; padding-inline: 8px; }
+  html[data-ui-mode="desktop"] #uiModeToggleText { display: none; }
+}
+#exportDialog .dialog__footer { flex-wrap: wrap; gap: 8px; }
+#libraryView .form-card__actions { flex-wrap: wrap; }

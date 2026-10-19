@@ -11,13 +11,13 @@
   <meta name="application-name" content="ThunderShadow">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=42"></script>
-  <script src="js/uuid.js?v=42"></script>
+  <script src="js/theme-init.js?v=43"></script>
+  <script src="js/uuid.js?v=43"></script>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-180.png">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=42">
-  <link rel="stylesheet" href="css/storm.css?v=42">
+  <link rel="stylesheet" href="css/styles.css?v=43">
+  <link rel="stylesheet" href="css/storm.css?v=43">
 </head>
 <body>
   <div class="storm-scene" aria-hidden="true">
@@ -329,7 +329,6 @@
           </div>
           <div id="ruleLibraryTabs" class="rule-library-tabs" role="tablist" aria-label="Rule library sections">
             <button id="savedRulesTab" type="button" role="tab" data-rule-section="saved" aria-controls="savedRulesPanel" aria-selected="true">Saved rules</button>
-            <button id="logRulesTab" type="button" role="tab" data-rule-section="logs" aria-controls="logRulesPanel" aria-selected="false" tabindex="-1">Rules found in logs</button>
             <button id="suspendedRulesTab" type="button" role="tab" data-rule-section="suspended" aria-controls="suspendedRulesPanel" aria-selected="false" tabindex="-1">Suspended rules</button>
           </div>
           <div id="ruleKindTabs" class="rule-library-tabs rule-kind-tabs" role="tablist" aria-label="Filter rules by kind">
@@ -364,20 +363,8 @@
           </div>
           <div class="rule-library-panels">
             <section id="savedRulesPanel" class="panel v3-panel saved-rules-panel" role="tabpanel" aria-labelledby="savedRulesTab">
-              <div class="panel__heading panel__heading--compact"><div><h2>Saved rules</h2></div><span id="ruleCountBadge" class="badge">0 active</span></div>
+              <div class="panel__heading panel__heading--compact"><div><h2>Saved rules</h2><p class="muted">Study notes become active rules automatically.</p></div><span id="ruleCountBadge" class="badge">0 active</span></div>
               <div id="personalRulesList" class="v3-list v3-list--compact"></div>
-            </section>
-            <section id="logRulesPanel" class="panel v3-panel" role="tabpanel" aria-labelledby="logRulesTab" hidden>
-              <div class="panel__heading panel__heading--compact"><div><h2>Rules found in logs</h2><p class="muted">Add unsaved study notes from all forms or the selected form.</p></div><span id="candidateCountBadge" class="badge">0 found</span></div>
-              <div id="candidateBulkActions" class="candidate-bulk-actions" hidden>
-                <label class="candidate-select-all"><input id="selectAllCandidates" type="checkbox"><span>Select all</span></label>
-                <span id="candidateSelectionCount" class="muted">0 selected</span>
-                <div class="candidate-bulk-actions__buttons">
-                  <button id="addSelectedCandidatesBtn" class="button button--ghost" type="button" disabled>Add selected</button>
-                  <button id="addAllCandidatesBtn" class="button button--primary" type="button">Add all shown</button>
-                </div>
-              </div>
-              <div id="ruleCandidatesList" class="v3-list v3-list--compact"></div>
             </section>
             <section id="suspendedRulesPanel" class="panel v3-panel" role="tabpanel" aria-labelledby="suspendedRulesTab" hidden>
               <div class="panel__heading panel__heading--compact"><div><h2>Suspended rules</h2><p class="muted">Kept in your library and backups, outside daily review.</p></div><span id="suspendedCountBadge" class="badge">0 suspended</span></div>
@@ -544,7 +531,7 @@
             <section class="panel v3-panel settings-card">
               <div><h2>Anki &amp; study exports</h2><p class="muted">Export every active saved rule as a front/back Anki card, including future-due cards. Suspended rules are excluded.</p></div>
               <div class="settings-card__actions"><button id="exportAnkiBtn" class="button button--primary" type="button" aria-describedby="ankiExportFormat">Export Anki TSV</button></div>
-              <p id="ankiExportFormat" class="muted">Front: rule wording. Back: your notes and source context. Tags: kind, reasoning pattern, and source forms. Stable IDs let later imports update or skip existing cards.</p>
+              <p id="ankiExportFormat" class="muted">Front: rule wording. Back: your notes and source context. Tags: kind, reasoning pattern, and source forms. The same ThunderShadowIDs appear in form, combined, and Anki exports. Use a form’s Anki button to export only its active rules. Stable IDs let later imports update or skip existing cards.</p>
               <details class="settings-details">
                 <summary>Anki setup &amp; repeat imports</summary>
                 <p class="muted">One-time setup in Anki Desktop: open Tools → Manage Note Types → Add, clone <strong>Basic</strong>, and name it <strong>ThunderShadow Basic</strong>. In Fields, add <strong>ThunderShadowID</strong> and reposition it to field 1. Keep <strong>Front</strong> and <strong>Back</strong> after it and leave the Basic card templates unchanged, so the ID stays off the card.</p>
@@ -663,7 +650,7 @@
     <form method="dialog" class="dialog__surface">
       <div class="dialog__header"><div><p class="eyebrow">TSV validation</p><h2>Screenshot-count check</h2></div></div>
       <div id="exportValidationBody" class="dialog__body"></div>
-      <div class="dialog__footer"><button class="button button--ghost" value="cancel">Cancel</button><button id="confirmExportBtn" class="button button--primary" value="default">Export TSV</button></div>
+      <div class="dialog__footer"><button class="button button--ghost" value="cancel">Cancel</button><button id="exportFormAnkiBtn" class="button button--ghost" type="button">Anki TSV</button><button id="confirmExportBtn" class="button button--primary" value="default">Export TSV</button></div>
     </form>
   </dialog>
 
@@ -736,13 +723,13 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=42" defer></script>
-  <script src="js/reasoning.js?v=42" defer></script>
-  <script src="js/analytics.js?v=42" defer></script>
-  <script src="js/browser-api.js?v=42" defer></script>
-  <script src="js/sync.js?v=42" defer></script>
-  <script src="js/app.js?v=42" defer></script>
-  <script src="js/v3.js?v=42" defer></script>
-  <script src="js/cloud-sync.js?v=42" defer></script>
+  <script src="js/config.js?v=43" defer></script>
+  <script src="js/reasoning.js?v=43" defer></script>
+  <script src="js/analytics.js?v=43" defer></script>
+  <script src="js/browser-api.js?v=43" defer></script>
+  <script src="js/sync.js?v=43" defer></script>
+  <script src="js/app.js?v=43" defer></script>
+  <script src="js/v3.js?v=43" defer></script>
+  <script src="js/cloud-sync.js?v=43" defer></script>
 </body>
 </html>

@@ -33,6 +33,11 @@
   const restorePreviews = new Map();
   let scheduledBackupChecked = false;
   let scheduledBackupQueued = false;
+  let logRulesReady = false;
+  let logRulesError = "";
+  let dataWork = Promise.resolve();
+  const queueDataWork = (work) => { const result = dataWork.then(work); dataWork = result.catch(() => {}); return result; };
+  const thunderShadowId = (id) => id ? `thundershadow:${id}` : "";
   const BACKUP_METADATA_KEY = "thundershadow:backup-metadata:v1";
 
   const nowISO = () => new Date().toISOString();
@@ -345,6 +350,10 @@
       reasoningNote,
       noteKind: canonicalNoteKind(input?.noteKind, pattern),
       manualRule: reasoningNote,
+      ruleId: typeof input?.ruleId === "string" ? input.ruleId : null,
+      ruleSyncIdentity: typeof input?.ruleSyncIdentity === "string" ? input.ruleSyncIdentity : null,
+      ruleSyncText: typeof input?.ruleSyncText === "string" ? input.ruleSyncText : null,
+      ThunderShadowID: thunderShadowId(input?.ruleId),
       deleted: Boolean(input?.deleted),
       revision: Number.isSafeInteger(input?.revision) && input.revision >= 0 ? input.revision : 0,
       createdAt: typeof input?.createdAt === "string" ? input.createdAt : null,
@@ -405,7 +414,7 @@
     const notes = String(input.notes ?? existing?.notes ?? "").slice(0, 12000);
     const createdAt = existing?.createdAt || input.createdAt || nowISO();
     return {
-      id, pattern, noteKind, patternLabel: PATTERN_LABELS.get(pattern) || "No pattern", ruleText,
+      id, ThunderShadowID: thunderShadowId(id), pattern, noteKind, patternLabel: PATTERN_LABELS.get(pattern) || "No pattern", ruleText,
       sourceFormName: input.sourceFormName ?? existing?.sourceFormName ?? null,
       sourceNoteId: input.sourceNoteId ?? existing?.sourceNoteId ?? null,
       metadataVersion: Number(input.metadataVersion ?? existing?.metadataVersion ?? 0),
@@ -428,6 +437,125 @@
     return `${kind}\n${canonicalPattern(item.pattern)}\n${normalizedRuleText(item.ruleText ?? item.reasoningNote)}`;
   }
 
+  // Canonical rules are materialized from authored notes, never from blank/error-
+  // only entries. Existing rule IDs, review history, suspension and wording edits
+  // remain authoritative. Persist the binding so later note edits keep their ID.
+  async function synchronizeLogRules({ formIds = null, notify = true, safety = false } = {}) {
+    const forms = formIds ? (await Promise.all(formIds.map((id) => get(STORES.forms, id)))).filter(Boolean).map((form) => normalizeForm(form, form)) : await allForms();
+    const rules = (await allStoredRules()).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+    const deleted = (await tombstones()).rules;
+    const byId = new Map(rules.map((rule) => [rule.id, rule]));
+    const identities = new Map(), aliases = new Map(), sources = new Map();
+    const indexRule = (rule) => {
+      if (!identities.has(ruleIdentity(rule))) identities.set(ruleIdentity(rule), rule.id);
+      for (const alias of rule.aliases) {
+        if (!identities.has(ruleIdentity(alias))) identities.set(ruleIdentity(alias), rule.id);
+        if (!aliases.has(ruleIdentity(alias))) aliases.set(ruleIdentity(alias), rule.id);
+      }
+      if (rule.sourceFormId && rule.sourceQuestionNumber) sources.set(noteIdFor(rule.sourceFormId, rule.sourceQuestionNumber), rule.id);
+    };
+    rules.forEach(indexRule);
+    const scope = formIds ? new Set(formIds) : null;
+    const pending = forms.filter((form) => !scope || scope.has(form.id));
+    if (safety && !emergencyStorage && pending.some((form) => form.entries.some((entry) => !entry.deleted && entry.reasoningNote.trim() && !entry.ruleId)) && !await getMeta("automatic_rules_v1", false)) {
+      await createSnapshot("safety-before-auto-rules");
+    }
+    const changedRules = new Set(), changedForms = new Set();
+    for (const form of pending) {
+      const links = new Map();
+      for (const entry of form.entries) {
+        if (entry.deleted || !entry.reasoningNote.trim()) continue;
+        const identity = ruleIdentity(entry), noteId = noteIdFor(form.id, entry.entryNumber);
+        const generatedId = `log:${encodeURIComponent(form.id)}:entry-${entry.entryNumber}`;
+        let id = entry.ruleId;
+        // A deliberate merge can move an old binding to the surviving alias.
+        // Otherwise tombstoned rules must not be recreated from their old notes.
+        if (deleted[id] || (!id && deleted[generatedId])) {
+          id = aliases.get(identity);
+          if (!id) {
+            // A genuinely rewritten note after deletion is a new card. Never
+            // reuse the deleted ID or recreate unchanged historical text.
+            if (entry.ruleSyncIdentity && entry.ruleSyncIdentity !== identity && objectTimestamp(entry) > (deleted[entry.ruleId] || deleted[generatedId])) id = `${generatedId}:v${entry.revision}`;
+            else continue;
+          }
+        }
+        let rule = byId.get(id);
+        if (!rule && !entry.ruleId) rule = byId.get(sources.get(noteId));
+        if (!rule) rule = byId.get(identities.get(identity));
+        if (!rule) {
+          id = id || generatedId;
+          if (deleted[id]) continue;
+          const createdAt = entry.createdAt || form.createdAt || nowISO();
+          const candidate = normalizeRule({ id, ruleText: entry.reasoningNote, noteKind: entry.noteKind, pattern: entry.pattern, status: "active", sourceFormId: form.id, sourceFormName: form.name, sourceQuestionNumber: entry.entryNumber, sourceNoteId: noteId, metadataVersion: 1, createdAt, updatedAt: entry.updatedAt || form.updatedAt || createdAt, nextReviewAt: createdAt.slice(0, 10) });
+          rule = normalizeRule(await updateRecordAtomically(STORES.rules, id, (stored) => stored || candidate));
+          // A second tab may have deleted the card after our initial read.
+          const deletedAt = (await tombstones()).rules[id];
+          if (deletedAt && objectTimestamp(rule) <= deletedAt) {
+            await updateRecordAtomically(STORES.rules, id, (stored) => stored && objectTimestamp(stored) > deletedAt ? stored : null);
+            continue;
+          }
+          byId.set(id, rule); changedRules.add(id); indexRule(rule);
+          if (notify) notifyMutation("rule.from-log", { ruleId: id });
+        } else if (entry.ruleId === rule.id && entry.ruleSyncIdentity && (entry.ruleSyncIdentity !== identity || (entry.ruleSyncText != null && entry.ruleSyncText !== entry.reasoningNote))) {
+          // Canonical edits in the library don't alter the source note marker;
+          // only a subsequent note edit updates the canonical wording/tags.
+          const oldParts = entry.ruleSyncIdentity.split("\n");
+          const wordingChanged = entry.ruleSyncText != null ? entry.ruleSyncText !== entry.reasoningNote : oldParts.slice(2).join("\n") !== normalizedRuleText(entry.reasoningNote);
+          const changes = { ...(wordingChanged ? { ruleText: entry.reasoningNote } : {}), ...(oldParts[0] !== entry.noteKind ? { noteKind: entry.noteKind } : {}), ...(oldParts[1] !== entry.pattern ? { pattern: entry.pattern } : {}) };
+          const exactId = identities.get(ruleIdentity({ ...rule, ...changes }));
+          if (exactId && exactId !== rule.id) rule = byId.get(exactId);
+          else if (objectTimestamp(entry) >= objectTimestamp(rule)) {
+            const previousIdentity = ruleIdentity(rule);
+            rule = await updateRecordAtomically(STORES.rules, rule.id, (stored) => {
+              if (!stored || objectTimestamp(stored) > objectTimestamp(entry)) return stored;
+              const prior = normalizeRule(stored, stored);
+              // Source bindings retain provenance; don't accumulate an alias
+              // for every intermediate autosaved word while the user types.
+              return normalizeRule({ ...prior, ...changes, updatedAt: entry.updatedAt || nowISO() }, prior);
+            });
+            if (!rule) continue;
+            byId.set(rule.id, rule); changedRules.add(rule.id);
+            if (notify) notifyMutation("rule.from-log", { ruleId: rule.id });
+            if (identities.get(previousIdentity) === rule.id) identities.delete(previousIdentity);
+            indexRule(rule);
+          }
+        }
+        if (entry.ruleId !== rule.id || entry.ruleSyncIdentity !== identity || entry.ruleSyncText !== entry.reasoningNote) links.set(entry.entryNumber, { ruleId: rule.id, ruleSyncIdentity: identity, noteText: entry.reasoningNote, noteIdentity: identity });
+      }
+      if (links.size) {
+        await updateRecordAtomically(STORES.forms, form.id, (stored) => {
+          if (!stored) return stored;
+          const live = normalizeForm(stored, stored);
+          live.entries = live.entries.map((entry) => {
+            const link = links.get(entry.entryNumber);
+            return link && !entry.deleted && entry.reasoningNote === link.noteText && ruleIdentity(entry) === link.noteIdentity ? { ...entry, ruleId: link.ruleId, ruleSyncIdentity: link.ruleSyncIdentity, ruleSyncText: link.noteText, ThunderShadowID: thunderShadowId(link.ruleId) } : entry;
+          });
+          live.questions = live.entries;
+          return live;
+        });
+        changedForms.add(form.id);
+        if (notify) notifyMutation("form.rule-links", { formId: form.id });
+      }
+    }
+    if (safety && (changedForms.size || changedRules.size)) await setMeta("automatic_rules_v1", true);
+  }
+
+  async function reconcileSavedForm(formId, kind, detail) {
+    try { await synchronizeLogRules({ formIds: [formId] }); }
+    catch (error) { logRulesReady = false; reportLogRuleError(error); }
+    finally {
+      // Even if derivative rule storage fails, the authored note is already
+      // durable and must remain dirty for cloud/backup recovery.
+      notifyMutation(kind, detail);
+    }
+  }
+
+  function reportLogRuleError(error) {
+    const message = String(error?.message || "Automatic rule storage is unavailable.");
+    if (message !== logRulesError) window.dispatchEvent(new CustomEvent("thundershadow-rule-storage-error", { detail: { message } }));
+    logRulesError = message;
+  }
+
   function ruleOccurrences(rule, forms) {
     const identities = new Set([ruleIdentity(rule), ...(rule.aliases || []).map(ruleIdentity)]);
     const matches = [];
@@ -436,7 +564,7 @@
         if (entry.deleted || !String(entry.reasoningNote || "").trim()) continue;
         const directSource = form.id === rule.sourceFormId && entry.entryNumber === Number(rule.sourceQuestionNumber);
         const sourceTextMatches = [rule.ruleText, ...(rule.aliases || []).map((alias) => alias.ruleText)].some((text) => normalizedRuleText(text) === normalizedRuleText(entry.reasoningNote));
-        if ((directSource && sourceTextMatches) || identities.has(ruleIdentity(entry))) {
+        if (entry.ruleId === rule.id || (!entry.ruleId && ((directSource && sourceTextMatches) || identities.has(ruleIdentity(entry))))) {
           matches.push({ formId: form.id, formName: form.name, date: form.date, noteId: noteIdFor(form.id, entry.entryNumber), questionNumber: entry.entryNumber, entryNumber: entry.entryNumber });
         }
       }
@@ -469,30 +597,6 @@
     const hydrated = [];
     for (const rule of stored) hydrated.push(await hydrateRule(rule, forms));
     return hydrated.sort((a, b) => (a.status === "archived") - (b.status === "archived") || String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
-  }
-
-  async function ruleCandidates() {
-    const forms = await allForms();
-    const rules = await allStoredRules();
-    const known = new Set();
-    const savedSources = new Set(rules.flatMap((rule) => ruleOccurrences(rule, forms).map((source) => source.noteId)));
-    for (const rule of rules) {
-      known.add(ruleIdentity(rule));
-      for (const alias of rule.aliases || []) known.add(ruleIdentity(alias));
-    }
-    const candidates = [];
-    for (const form of forms) {
-      for (const entry of form.entries || []) {
-        if (entry.deleted || !String(entry.reasoningNote || "").trim()) continue;
-        const key = ruleIdentity(entry);
-        if (savedSources.has(entry.noteId) || known.has(key)) continue;
-        const occurrence = { formId: form.id, formName: form.name, date: form.date, noteId: entry.noteId, entryNumber: entry.entryNumber };
-        const prior = candidates.find((item) => item.key === key);
-        if (prior) { prior.occurrences.push(occurrence); continue; }
-        candidates.push({ key, occurrences: [occurrence], noteKind: entry.noteKind, sourceNoteId: entry.noteId, pattern: canonicalPattern(entry.pattern), patternLabel: PATTERN_LABELS.get(canonicalPattern(entry.pattern)), ruleText: entry.reasoningNote, sourceFormId: form.id, sourceFormName: form.name, sourceQuestionNumber: entry.entryNumber, sourceDate: form.date });
-      }
-    }
-    return candidates.sort((a, b) => b.sourceDate.localeCompare(a.sourceDate)).map(({ key, ...rest }) => rest);
   }
 
   async function duplicateMatches(candidate, rules = null, excludeId = null) {
@@ -560,17 +664,21 @@
     return safe || "ThunderShadow";
   }
   function formToTsv(form) {
-    const headers = ["Form", "Date", "Entry_Number", "Error_Code", "Rule_Pattern", "Speed_Flags", "Reasoning_Note", "Note_Type", "Form_ID", "Note_ID"];
+    const headers = ["ThunderShadowID", "Form", "Date", "Entry_Number", "Error_Code", "Rule_Pattern", "Speed_Flags", "Reasoning_Note", "Note_Type", "Form_ID", "Note_ID", "Rule_Text"];
     const rows = (form.entries || []).filter(isLogged).sort((a, b) => a.entryNumber - b.entryNumber).map((entry) => [
-      form.name, form.date, entry.entryNumber, entry.errorCode, PATTERN_LABELS.get(entry.pattern) || "",
-      (entry.speedFlags || []).map((flag) => SPEED_LABELS.get(flag) || flag).join(" | "), tsvEscape(entry.reasoningNote, true), entry.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern", form.id, noteIdFor(form.id, entry.entryNumber)
-    ].map((value, index) => index === 6 ? value : tsvEscape(value)).join("\t"));
+      entry.exportRule ? thunderShadowId(entry.exportRule.id) : "", form.name, form.date, entry.entryNumber, entry.errorCode, PATTERN_LABELS.get(entry.pattern) || "",
+      (entry.speedFlags || []).map((flag) => SPEED_LABELS.get(flag) || flag).join(" | "), tsvEscape(entry.reasoningNote, true), entry.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern", form.id, noteIdFor(form.id, entry.entryNumber), tsvEscape(entry.exportRule?.ruleText || "", true)
+    ].map((value, index) => [7, 11].includes(index) ? value : tsvEscape(value)).map(ankiTsvCell).join("\t"));
     return [headers.join("\t"), ...rows].join("\n");
   }
-  function allFormsToTsv(forms) { return ["Form\tDate\tEntry_Number\tError_Code\tRule_Pattern\tSpeed_Flags\tReasoning_Note\tNote_Type\tForm_ID\tNote_ID", ...forms.flatMap((form) => formToTsv(form).split("\n").slice(1))].join("\n"); }
+  function allFormsToTsv(forms) { return [formToTsv({ entries: [] }), ...forms.flatMap((form) => formToTsv(form).split("\n").slice(1))].join("\n"); }
+  async function formsForExport(forms) {
+    const byId = new Map((await allStoredRules()).map((rule) => [rule.id, rule]));
+    return forms.map((form) => ({ ...form, entries: form.entries.map((entry) => ({ ...entry, exportRule: entry.reasoningNote.trim() ? byId.get(entry.ruleId) : null })) }));
+  }
   function activeRulesTsv(rules) {
-    const headers = ["Rule_ID", "Canonical_Pattern", "Rule_Text", "Status", "Occurrence_Count", "First_Seen", "Last_Seen", "Next_Review", "Notes", "Note_Type", "Source_Form_ID", "Source_Form", "Source_Entry", "Source_Note_ID", "All_Sources"];
-    const rows = rules.filter((rule) => rule.status !== "archived").map((rule) => [rule.id, rule.patternLabel, rule.ruleText, rule.status, rule.occurrenceCount, rule.firstSeen, rule.lastSeen, rule.nextReviewAt || "", rule.notes, rule.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern", rule.sourceFormId, rule.sourceFormName, rule.sourceQuestionNumber, rule.sourceNoteId, JSON.stringify(rule.occurrences || [])].map((value) => tsvEscape(value)).join("\t"));
+    const headers = ["ThunderShadowID", "Rule_ID", "Canonical_Pattern", "Rule_Text", "Status", "Occurrence_Count", "First_Seen", "Last_Seen", "Next_Review", "Notes", "Note_Type", "Source_Form_ID", "Source_Form", "Source_Entry", "Source_Note_ID", "All_Sources"];
+    const rows = rules.filter((rule) => rule.status !== "archived").map((rule) => [thunderShadowId(rule.id), rule.id, rule.patternLabel, rule.ruleText, rule.status, rule.occurrenceCount, rule.firstSeen, rule.lastSeen, rule.nextReviewAt || "", rule.notes, rule.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern", rule.sourceFormId, rule.sourceFormName, rule.sourceQuestionNumber, rule.sourceNoteId, JSON.stringify(rule.occurrences || [])].map((value) => ankiTsvCell(tsvEscape(value))).join("\t"));
     return [headers.join("\t"), ...rows].join("\n");
   }
   function ankiHtml(value) {
@@ -604,7 +712,7 @@
       if (otherSources.length) back.push(`<div><b>Also seen in:</b></div><ul>${otherSources.map((source) => `<li>${ankiHtml(ankiSourceLabel(source))}</li>`).join("")}</ul>`);
       const formNames = [rule.sourceFormName, ...(rule.occurrences || []).map((source) => source.formName)];
       const tags = ["ThunderShadow", `ThunderShadow::${kind.replace(/ /g, "_")}`, ...(pattern ? [`ThunderShadow::${pattern.code}`] : []), ...formNames.filter(Boolean).map(tagPart).filter(Boolean).map((name) => `ThunderShadow::Form::${name}`)];
-      return [ankiHtml(`thundershadow:${rule.id}`), ankiHtml(rule.ruleText), back.join(""), [...new Set(tags)].join(" ")].map(ankiTsvCell).join("\t");
+      return [ankiHtml(thunderShadowId(rule.id)), ankiHtml(rule.ruleText), back.join(""), [...new Set(tags)].join(" ")].map(ankiTsvCell).join("\t");
     });
     return [...headers, ...rows].join("\n");
   }
@@ -617,7 +725,7 @@
       ...analytics.patterns.map((item) => { const topError = item.associatedErrorCodes[0], topSpeed = item.associatedSpeedFlags[0], subjects = item.representativeSubjects.map((subject) => subject.label).join(", ") || "none"; return `- ${item.code} — ${item.label}: ${item.level.label}; ${item.count} entries (${item.percentage}% of pattern-coded) across ${item.formCount} forms; top Error Code ${topError ? `${topError.id} (${topError.count})` : "none"}; top Speed Flag ${topSpeed ? `${topSpeed.label} (${topSpeed.count})` : "none"}; subjects/topics ${subjects}; trend ${item.trend.direction}; Fix: ${item.correctiveAction}`; }),
       "", "## Speed frequencies", ...analytics.speed.map((item) => `- ${item.label}: ${item.count}`), "", "## Cross-form trends",
       ...analytics.recentTrend.map((item) => `- ${item.date} — ${item.formName}: logged ${item.logged}, wrong ${item.wrong}, unstable correct ${item.unstable}`), "", "## Active rules",
-      ...rules.filter((rule) => rule.status !== "archived").map((rule) => `- [${rule.status}] ${rule.ruleText} (${rule.patternLabel}; ${rule.occurrenceCount} exact occurrences; next review ${rule.nextReviewAt || "unscheduled"})`),
+      ...rules.filter((rule) => rule.status !== "archived").map((rule) => `- [${thunderShadowId(rule.id)}] [${rule.status}] ${rule.ruleText} (${rule.patternLabel}; ${rule.occurrenceCount} exact occurrences; next review ${rule.nextReviewAt || "unscheduled"})`),
       "", "## Recurring combinations", ...(analytics.combinations.length ? analytics.combinations.map((item) => `- ${item.label}: ${item.count}`) : ["- None in the selected data."]),
       "", "## Ready-to-use analysis prompt", "Analyze this local NBME/CMS reasoning log. Prioritize recurring, recent weaknesses; distinguish wrong answers from unstable correct answers; compare the displayed earlier and recent counts before describing improvement; treat combinations as descriptive associations rather than causes. Recommend a short list of concrete reasoning rules to review without inventing clinical facts or adding new logging fields."
     ];
@@ -688,6 +796,8 @@
     if (payload.settings?.reviewShortcuts) await put(STORES.settings, { key: "review_shortcuts", value: normalizeReviewShortcuts(payload.settings.reviewShortcuts), updatedAt: payload.settingsUpdatedAt || nowISO() });
     await setMeta("tombstones", { forms: { ...(payload.tombstones?.forms || {}) }, rules: { ...(payload.tombstones?.rules || {}) }, entries: { ...(payload.tombstones?.entries || {}) } });
     if (!preserveBackups) await clear(STORES.backups);
+    await synchronizeLogRules({ notify: false });
+    logRulesReady = true;
     return { restored: forms.length, rulesRestored: rules.length };
   }
 
@@ -751,7 +861,15 @@
     return base;
   }
 
-  async function mergePackage(remotePayload) {
+  function mergePackage(remotePayload) {
+    return queueDataWork(async () => {
+      await mergePackageData(remotePayload);
+      await synchronizeLogRules({ notify: false });
+      logRulesReady = true;
+      return exportPackage();
+    });
+  }
+  async function mergePackageData(remotePayload) {
     validateBackupPayload(remotePayload);
 
     // Cloud sync must never clear/rebuild the live IndexedDB stores. A destructive
@@ -832,7 +950,7 @@
       }
       return { key: "tombstones", value: merged };
     });
-    return exportPackage();
+    // The caller reconciles derived log links silently before returning a snapshot.
   }
 
   function readBackupMetadataCache() {
@@ -999,7 +1117,21 @@
     window.dispatchEvent(new CustomEvent("thundershadow-local-data-changed", { detail: eventDetail }));
   }
 
-  async function request(path, options = {}) {
+  function request(path, options = {}) {
+    return queueDataWork(async () => {
+      try {
+        if (!logRulesReady) {
+          try {
+            await synchronizeLogRules({ safety: true });
+            logRulesReady = true;
+            logRulesError = "";
+          } catch (error) { reportLogRuleError(error); }
+        }
+        return await routeRequest(path, options);
+      } catch (error) { return errorResponse(error); }
+    });
+  }
+  async function routeRequest(path, options = {}) {
     queueScheduledBackupCheck();
     const url = routePath(path);
     const pathname = url.pathname.replace(/\/+/g, "/");
@@ -1008,7 +1140,7 @@
       if (pathname.endsWith("/api/forms") && method === "GET") return jsonResponse(await allForms());
       if (pathname.endsWith("/api/forms") && method === "POST") {
         const body = await parseBody(options); if (await get(STORES.forms, body.id)) return errorResponse(new Error("A form with that id already exists."), 409, "CONFLICT");
-        const form = normalizeForm({ ...body, revision: 1, createdAt: nowISO(), updatedAt: nowISO() }); await put(STORES.forms, form); await clearTombstone("form", form.id); notifyMutation("form.created", { formId: form.id, immediate: true }); return jsonResponse(form, 201);
+        const form = normalizeForm({ ...body, revision: 1, createdAt: nowISO(), updatedAt: nowISO() }); await put(STORES.forms, form); await clearTombstone("form", form.id); await reconcileSavedForm(form.id, "form.created", { formId: form.id, immediate: true }); return jsonResponse(normalizeForm(await get(STORES.forms, form.id)), 201);
       }
 
       let m = match(pathname, /\/api\/forms\/([^/]+)$/);
@@ -1044,8 +1176,8 @@
             while (Number(form.maxEntryNumber || 0) < n) { const next = Number(form.maxEntryNumber || 0) + 1; entries.push({ ...blankEntry(next), createdAt: nowISO(), updatedAt: nowISO(), revision: 0 }); form.maxEntryNumber = next; }
             index = entries.findIndex((entry) => entry.entryNumber === n);
           }
-          const existing = entries[index]; const body = await parseBody(options); const saved = normalizeEntry({ ...existing, ...body, noteId: noteIdFor(formId, n), entryNumber: n, number: n, deleted: existing.deleted, revision: Number(existing.revision || 0) + 1, createdAt: existing.createdAt || nowISO(), updatedAt: nowISO() }, n);
-          entries[index] = saved; form.entries = entries.sort((a, b) => a.entryNumber - b.entryNumber); form.questions = form.entries; form.currentEntry = n; form.currentQuestion = n; form.updatedAt = nowISO(); await put(STORES.forms, form); notifyMutation("entry.updated", { formId, entryNumber: n }); return jsonResponse(saved);
+          const existing = entries[index]; const body = await parseBody(options); const saved = normalizeEntry({ ...existing, ...body, ruleId: existing.ruleId, ruleSyncIdentity: existing.ruleSyncIdentity, ruleSyncText: existing.ruleSyncText, noteId: noteIdFor(formId, n), entryNumber: n, number: n, deleted: existing.deleted, revision: Number(existing.revision || 0) + 1, createdAt: existing.createdAt || nowISO(), updatedAt: nowISO() }, n);
+          entries[index] = saved; form.entries = entries.sort((a, b) => a.entryNumber - b.entryNumber); form.questions = form.entries; form.currentEntry = n; form.currentQuestion = n; form.updatedAt = nowISO(); await put(STORES.forms, form); await reconcileSavedForm(formId, "entry.updated", { formId, entryNumber: n }); return jsonResponse(normalizeForm(await get(STORES.forms, formId)).entries.find((entry) => entry.entryNumber === n));
         }
         if (method === "DELETE") {
           if (index < 0) return errorResponse(new Error("Entry not found."), 404, "NOT_FOUND"); const entry = entries[index]; entry.deleted = true; entry.revision = Number(entry.revision || 0) + 1; entry.updatedAt = nowISO(); entries[index] = entry; form.entries = entries; form.questions = entries; form.updatedAt = nowISO(); await put(STORES.forms, form); notifyMutation("entry.deleted", { formId, entryNumber: n, immediate: true }); return new Response(null, { status: 204 });
@@ -1054,14 +1186,14 @@
 
       m = match(pathname, /\/api\/forms\/([^/]+)\/entries\/(\d+)\/restore$/);
       if (m && method === "POST") {
-        const [formId, nText] = m, n = Number(nText); const form = await get(STORES.forms, formId); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); const entries = (form.entries || []).map((entry) => normalizeEntry(entry)); const index = entries.findIndex((entry) => entry.entryNumber === n); if (index < 0) return errorResponse(new Error("Entry not found."), 404, "NOT_FOUND"); entries[index].deleted = false; entries[index].revision += 1; entries[index].updatedAt = nowISO(); form.entries = entries; form.questions = entries; form.updatedAt = nowISO(); await put(STORES.forms, form); notifyMutation("entry.restored", { formId, entryNumber: n, immediate: true }); return jsonResponse(entries[index]);
+        const [formId, nText] = m, n = Number(nText); const form = await get(STORES.forms, formId); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); const entries = (form.entries || []).map((entry) => normalizeEntry(entry)); const index = entries.findIndex((entry) => entry.entryNumber === n); if (index < 0) return errorResponse(new Error("Entry not found."), 404, "NOT_FOUND"); entries[index].deleted = false; entries[index].revision += 1; entries[index].updatedAt = nowISO(); form.entries = entries; form.questions = entries; form.updatedAt = nowISO(); await put(STORES.forms, form); await reconcileSavedForm(formId, "entry.restored", { formId, entryNumber: n, immediate: true }); return jsonResponse(normalizeForm(await get(STORES.forms, formId)).entries.find((entry) => entry.entryNumber === n));
       }
       m = match(pathname, /\/api\/forms\/([^/]+)\/entries\/(\d+)\/permanent$/);
       if (m && method === "DELETE") {
         const [formId, nText] = m, n = Number(nText); const body = await parseBody(options); const form = await get(STORES.forms, formId); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); const entries = (form.entries || []).map((entry) => normalizeEntry(entry)); const target = entries.find((entry) => entry.entryNumber === n); if (!target?.deleted) return errorResponse(new Error("Only deleted entries can be permanently removed."), 400); if (body.confirmation !== `DELETE ENTRY ${n}`) return errorResponse(new Error(`Type DELETE ENTRY ${n} to confirm.`), 400); form.entries = entries.filter((entry) => entry.entryNumber !== n); form.questions = form.entries; form.updatedAt = nowISO(); await put(STORES.forms, form); await markDeleted("entry", `${formId}:${n}`); notifyMutation("entry.permanent-delete", { formId, entryNumber: n, immediate: true }); return new Response(null, { status: 204 });
       }
       m = match(pathname, /\/api\/forms\/([^/]+)\/export\.tsv$/);
-      if (m && method === "GET") { const form = await get(STORES.forms, m[0]); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); return textResponse(formToTsv(normalizeForm(form, form)), "text/tab-separated-values; charset=utf-8", `${safeFilename(form.name)}_ThunderShadow_Log.tsv`); }
+      if (m && method === "GET") { const form = await get(STORES.forms, m[0]); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); return textResponse(formToTsv((await formsForExport([normalizeForm(form, form)]))[0]), "text/tab-separated-values; charset=utf-8", `${safeFilename(form.name)}_ThunderShadow_Log.tsv`); }
 
       if (pathname.endsWith("/api/backup") && method === "GET") return jsonResponse(await exportPackage());
       if (pathname.endsWith("/api/restore") && method === "POST") {
@@ -1091,7 +1223,7 @@
       if (pathname.endsWith("/api/rules") && method === "GET") {
         const rules = await allHydratedRules(); const output = [];
         for (const rule of rules) { const duplicates = await duplicateMatches(rule, rules); output.push({ ...rule, nearDuplicates: duplicates.near.map((item) => ({ id: item.id, ruleText: item.ruleText, similarity: item.similarity })) }); }
-        return jsonResponse({ rules: output, candidates: await ruleCandidates() });
+        return jsonResponse({ rules: output });
       }
       if (pathname.endsWith("/api/rules/review") && method === "GET") {
         const limit = Math.max(1, Math.min(30, Number(url.searchParams.get("limit")) || 10)), today = nowISO().slice(0, 10); const allRules = await allHydratedRules(); const due = allRules.filter((rule) => (!url.searchParams.get("noteKind") || rule.noteKind === url.searchParams.get("noteKind")) && rule.status !== "archived" && (!rule.nextReviewAt || rule.nextReviewAt <= today)).sort((a, b) => String(a.nextReviewAt || "").localeCompare(String(b.nextReviewAt || "")) || b.occurrenceCount - a.occurrenceCount || b.lastSeen.localeCompare(a.lastSeen)); return jsonResponse({ date: today, due: due.length, suspended: allRules.filter((rule) => rule.status === "archived").length, rules: due.slice(0, limit) });
@@ -1122,16 +1254,22 @@
       }
       m = match(pathname, /\/api\/rules\/([^/]+)\/merge$/);
       if (m && method === "POST") {
-        const target = await get(STORES.rules, m[0]); const body = await parseBody(options); const source = await get(STORES.rules, body.sourceRuleId); if (!target || !source) return errorResponse(new Error("Merge rule was not found."), 404, "NOT_FOUND"); if (target.id === source.id) return errorResponse(new Error("A rule cannot be merged into itself."), 400); const merged = normalizeRule({ ...target, pattern: body.pattern || target.pattern, ruleText: body.ruleText ?? target.ruleText, updatedAt: nowISO() }, target); merged.aliases = [...(target.aliases || []), { noteKind: canonicalNoteKind(source.noteKind, source.pattern), pattern: source.pattern, ruleText: source.ruleText }, ...(source.aliases || [])]; merged.reviewHistory = [...(target.reviewHistory || []), ...(source.reviewHistory || [])]; merged.successfulReviews = Number(target.successfulReviews || 0) + Number(source.successfulReviews || 0); await put(STORES.rules, merged); await del(STORES.rules, source.id); await markDeleted("rule", source.id); notifyMutation("rule.merged", { ruleId: target.id, removedRuleId: source.id, immediate: true }); return jsonResponse(await hydrateRule(merged));
+        const target = await get(STORES.rules, m[0]); const body = await parseBody(options); const source = await get(STORES.rules, body.sourceRuleId); if (!target || !source) return errorResponse(new Error("Merge rule was not found."), 404, "NOT_FOUND"); if (target.id === source.id) return errorResponse(new Error("A rule cannot be merged into itself."), 400); const merged = normalizeRule({ ...target, pattern: body.pattern || target.pattern, ruleText: body.ruleText ?? target.ruleText, updatedAt: nowISO() }, target); merged.aliases = [...(target.aliases || []), { noteKind: canonicalNoteKind(source.noteKind, source.pattern), pattern: source.pattern, ruleText: source.ruleText }, ...(source.aliases || [])]; merged.reviewHistory = [...(target.reviewHistory || []), ...(source.reviewHistory || [])]; merged.successfulReviews = Number(target.successfulReviews || 0) + Number(source.successfulReviews || 0); await put(STORES.rules, merged); await del(STORES.rules, source.id); await markDeleted("rule", source.id); await synchronizeLogRules(); notifyMutation("rule.merged", { ruleId: target.id, removedRuleId: source.id, immediate: true }); return jsonResponse(await hydrateRule(merged));
       }
       m = match(pathname, /\/api\/rules\/([^/]+)\/reviews$/);
       if (m && method === "POST") {
         const rule = await get(STORES.rules, m[0]); if (!rule) return errorResponse(new Error("Rule not found."), 404, "NOT_FOUND"); const body = await parseBody(options), reviewedAt = nowISO(); const intervals = normalizeReviewIntervals(await getSetting("review_intervals", DEFAULT_REVIEW_INTERVALS)); const schedule = nextReviewSchedule(body.response, Number(rule.successfulReviews || 0), new Date(reviewedAt), intervals); const status = schedule.status || (["hard", "good", "partly_reliable", "reliable_today"].includes(body.response) ? "improving" : rule.status); const review = { id: uuid(), response: body.response, reviewedAt, intervalDays: schedule.intervalDays, nextReviewAt: schedule.nextReviewAt }; rule.reviewHistory = [review, ...(rule.reviewHistory || [])]; rule.status = status; rule.nextReviewAt = schedule.nextReviewAt; rule.successfulReviews = schedule.successfulReviews; rule.updatedAt = reviewedAt; await put(STORES.rules, rule); notifyMutation("rule.reviewed", { ruleId: rule.id }); return jsonResponse(await hydrateRule(rule));
       }
 
-      if (pathname.endsWith("/api/export/all-forms.tsv") && method === "GET") return textResponse(allFormsToTsv(await allForms()), "text/tab-separated-values; charset=utf-8", "ThunderShadow_Longitudinal_Log.tsv");
+      if (pathname.endsWith("/api/export/all-forms.tsv") && method === "GET") return textResponse(allFormsToTsv(await formsForExport(await allForms())), "text/tab-separated-values; charset=utf-8", "ThunderShadow_Longitudinal_Log.tsv");
       if (pathname.endsWith("/api/export/active-rules.tsv") && method === "GET") return textResponse(activeRulesTsv(await allHydratedRules()), "text/tab-separated-values; charset=utf-8", "ThunderShadow_Active_Rules.tsv");
-      if (pathname.endsWith("/api/export/anki.tsv") && method === "GET") return textResponse(activeRulesAnkiTsv(await allHydratedRules()), "text/tab-separated-values; charset=utf-8", "ThunderShadow_Anki.tsv");
+      if (pathname.endsWith("/api/export/anki.tsv") && method === "GET") {
+        const formId = url.searchParams.get("formId");
+        const form = formId ? await get(STORES.forms, formId) : null;
+        if (formId && !form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND");
+        const rules = (await allHydratedRules()).filter((rule) => !formId || rule.sourceFormId === formId || rule.occurrences.some((item) => item.formId === formId));
+        return textResponse(activeRulesAnkiTsv(rules), "text/tab-separated-values; charset=utf-8", form ? `${safeFilename(form.name)}_ThunderShadow_Anki.tsv` : "ThunderShadow_Anki.tsv");
+      }
       if (pathname.endsWith("/api/export/analytics.json") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; return textResponse(JSON.stringify(calculateAnalytics(await allForms(), filters), null, 2), "application/json; charset=utf-8", "ThunderShadow_Analytics.json"); }
       if (pathname.endsWith("/api/export/chatgpt-analysis.md") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; const analytics = calculateAnalytics(await allForms(), filters); return textResponse(analysisMarkdown(analytics, await allHydratedRules()), "text/markdown; charset=utf-8", "ThunderShadow_ChatGPT_Analysis.md"); }
 

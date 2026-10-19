@@ -8,9 +8,9 @@
     review: document.getElementById("reviewView"),
     settings: document.getElementById("settingsView")
   };
-  const state = { rules: [], candidates: [], analytics: null, review: null, reviewIntervals: { again: 1, hard: 3, good: 7, easy: 30 }, reviewedThisSession: 0, activeArea: null, reviewKind: "all", reviewLoad: 0, reviewShortcuts: { again: "1", hard: "2", good: "3", easy: "4", quickGood: "Space" }, settingsCategory: "cards", librarySection: "saved", libraryForms: { saved: "all", logs: "all", suspended: "all" }, restorePreview: null };
+  const state = { rules: [], analytics: null, review: null, reviewIntervals: { again: 1, hard: 3, good: 7, easy: 30 }, reviewedThisSession: 0, activeArea: null, reviewKind: "all", reviewLoad: 0, reviewShortcuts: { again: "1", hard: "2", good: "3", easy: "4", quickGood: "Space" }, settingsCategory: "cards", librarySection: "saved", libraryForms: { saved: "all", suspended: "all" }, restorePreview: null };
   const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
-  state.libraryKinds = { saved: "all", logs: "all", suspended: "all" };
+  state.libraryKinds = { saved: "all", suspended: "all" };
   state.selectedRules = new Set();
   state.selectionAnchor = null;
   state.bulkBusy = false;
@@ -97,7 +97,7 @@
       </div>
     `).join("");
     const history = rule.reviewHistory.length
-      ? rule.reviewHistory.slice(0, 5).map((review) => `<li>${escapeHTML(labelResponse(review.response))} · ${escapeHTML(review.reviewedAt.slice(0, 10))} → ${escapeHTML(review.nextReviewAt)}</li>`).join("")
+      ? rule.reviewHistory.slice(0, 5).map((review) => `<li>${escapeHTML(labelResponse(review.response))} · ${escapeHTML((String(review.reviewedAt || "").slice(0, 10) || "Unknown date"))} → ${escapeHTML(review.nextReviewAt)}</li>`).join("")
       : "<li>No reviews yet.</li>";
     return `
       <article class="rule-browser-row${state.selectedRules.has(rule.id) ? " is-selected" : ""}" data-rule-id="${escapeHTML(rule.id)}">
@@ -115,7 +115,7 @@
           <span>${escapeHTML(rule.firstSeen)} → ${escapeHTML(rule.lastSeen)}</span>
             <span>${suspended ? "Removed from review" : `Next review: ${escapeHTML(rule.nextReviewAt || "today")}`}</span>
           </div>
-          <p class="rule-source" title="${escapeHTML(rule.sourceNoteId || rule.id)}">${escapeHTML(sourceLabel(rule))}<small>Rule ID: ${escapeHTML(rule.id)}${rule.sourceNoteId ? ` · Note ID: ${escapeHTML(rule.sourceNoteId)}` : ""}</small></p>
+          <p class="rule-source" title="${escapeHTML(rule.sourceNoteId || rule.id)}">${escapeHTML(sourceLabel(rule))}<small>ThunderShadowID: ${escapeHTML(rule.ThunderShadowID || `thundershadow:${rule.id}`)}${rule.sourceNoteId ? ` · Note ID: ${escapeHTML(rule.sourceNoteId)}` : ""}</small></p>
           <label class="rule-edit-label"><span>Rule wording</span><textarea class="rule-card__text" maxlength="12000" aria-label="Canonical rule wording">${escapeHTML(rule.ruleText)}</textarea></label>
           <div class="rule-card__controls">
             <label>Note tag<select class="rule-kind" aria-label="Note tag"><option value="clinical"${rule.noteKind === "clinical" ? " selected" : ""}>Clinical Pattern</option><option value="reasoning"${rule.noteKind === "reasoning" ? " selected" : ""}>Broad Pattern</option></select></label>
@@ -140,12 +140,7 @@
   }
 
   function ruleMatchesSearch(rule, query) {
-    return !query || [rule.ruleText, rule.notes, kindLabel(rule.noteKind), rule.patternLabel, rule.id, rule.sourceNoteId, sourceLabel(rule), ...(rule.occurrences || []).map((item) => `${item.formName} ${item.noteId}`)].join(" ").toLowerCase().includes(query);
-  }
-
-  function visibleCandidates() {
-    const query = document.getElementById("ruleSearchInput").value.trim().toLowerCase();
-    return sortRules(state.candidates.map((candidate, index) => ({ candidate, index })).filter(({ candidate }) => ruleMatchesKind(candidate, "logs") && ruleMatchesForm(candidate, state.libraryForms.logs) && ruleMatchesSearch(candidate, query)), (item) => item.candidate);
+    return !query || [rule.ruleText, rule.notes, kindLabel(rule.noteKind), rule.patternLabel, rule.ThunderShadowID, rule.id, rule.sourceNoteId, sourceLabel(rule), ...(rule.occurrences || []).map((item) => `${item.formName} ${item.noteId}`)].join(" ").toLowerCase().includes(query);
   }
 
   function ruleMatchesKind(rule, section) {
@@ -163,14 +158,9 @@
     return sortRules(state.rules.filter((rule) => (rule.status === "archived") === (section === "suspended") && ruleMatchesKind(rule, section) && ruleMatchesForm(rule, state.libraryForms[section]) && ruleMatchesSearch(rule, query)));
   }
 
-  function scopedCandidate(candidate) {
-    const source = (candidate.occurrences || []).find((item) => item.formId === state.libraryForms.logs);
-    return source ? { ...candidate, sourceFormId: source.formId, sourceFormName: source.formName, sourceQuestionNumber: source.entryNumber, sourceNoteId: source.noteId, sourceDate: source.date } : candidate;
-  }
-
   function renderFormTabs() {
     const forms = new Map(app.getForms().map((form) => [form.id, form.name]));
-    const items = (state.librarySection === "logs" ? state.candidates : state.rules.filter((rule) => (rule.status === "archived") === (state.librarySection === "suspended"))).filter((rule) => ruleMatchesKind(rule, state.librarySection));
+    const items = state.rules.filter((rule) => (rule.status === "archived") === (state.librarySection === "suspended")).filter((rule) => ruleMatchesKind(rule, state.librarySection));
     for (const rule of items) {
       if (rule.sourceFormId && !forms.has(rule.sourceFormId)) forms.set(rule.sourceFormId, rule.sourceFormName || "Unavailable form");
       for (const item of rule.occurrences || []) if (!forms.has(item.formId)) forms.set(item.formId, item.formName || "Unavailable form");
@@ -180,12 +170,12 @@
     document.getElementById("ruleFormTabs").innerHTML = options.map(([id, name]) => {
       const selected = state.libraryForms[state.librarySection] === id;
       const count = items.filter((rule) => ruleMatchesForm(rule, id)).length;
-      return `<button type="button" role="tab" aria-controls="${state.librarySection === "saved" ? "savedRulesPanel" : state.librarySection === "logs" ? "logRulesPanel" : "suspendedRulesPanel"}" data-rule-form="${escapeHTML(id)}" aria-selected="${selected}" tabindex="${selected ? 0 : -1}" title="${escapeHTML(name)}"><span>${escapeHTML(name)}</span><small>${count}</small></button>`;
+      return `<button type="button" role="tab" aria-controls="${state.librarySection === "saved" ? "savedRulesPanel" : "suspendedRulesPanel"}" data-rule-form="${escapeHTML(id)}" aria-selected="${selected}" tabindex="${selected ? 0 : -1}" title="${escapeHTML(name)}"><span>${escapeHTML(name)}</span><small>${count}</small></button>`;
     }).join("");
     document.querySelectorAll("[data-library-kind]").forEach((tab) => {
       const selected = tab.dataset.libraryKind === state.libraryKinds[state.librarySection];
       tab.setAttribute("aria-selected", String(selected));
-      tab.setAttribute("aria-controls", state.librarySection === "saved" ? "savedRulesPanel" : state.librarySection === "logs" ? "logRulesPanel" : "suspendedRulesPanel");
+      tab.setAttribute("aria-controls", state.librarySection === "saved" ? "savedRulesPanel" : "suspendedRulesPanel");
       tab.tabIndex = selected ? 0 : -1;
     });
     requestAnimationFrame(updateFormScroll);
@@ -204,34 +194,15 @@
     });
     renderFormTabs();
     renderSavedRules();
-    renderCandidates();
     views.library.querySelector(".rule-library-panels").scrollTop = 0;
   }
 
   async function loadLibrary() {
     const payload = await app.apiRequest("/api/rules");
     state.rules = payload.rules;
-    state.candidates = payload.candidates;
     state.selectedRules = new Set([...state.selectedRules].filter((id) => state.rules.some((rule) => rule.id === id && (rule.status === "archived") === (state.librarySection === "suspended"))));
-    if (state.bulkBusy) { renderFormTabs(); renderSavedRules(); renderCandidates(); }
+    if (state.bulkBusy) { renderFormTabs(); renderSavedRules(); }
     else selectLibrarySection(state.librarySection);
-  }
-
-  function renderCandidates() {
-    const visible = visibleCandidates();
-    document.getElementById("candidateCountBadge").textContent = `${visible.length} found`;
-    document.getElementById("candidateBulkActions").hidden = !visible.length;
-    document.getElementById("ruleCandidatesList").innerHTML = visible.length
-      ? visible.map(({ candidate: original, index }) => {
-          const candidate = scopedCandidate(original);
-          return `<article class="candidate-card" data-candidate-index="${index}">
-            <label class="candidate-card__select"><input type="checkbox" data-candidate-select aria-label="Select rule from ${escapeHTML(candidate.sourceFormName)}"></label>
-            <div class="candidate-card__content">${tagMarkup(candidate)}<strong>${escapeHTML(candidate.ruleText)}</strong><small>${escapeHTML(candidate.sourceFormName)} · Entry ${candidate.sourceQuestionNumber} · ${escapeHTML(candidate.sourceDate)}</small></div>
-            <button class="button button--primary" data-candidate-action="add" type="button">Add to library</button>
-          </article>`;
-        }).join("")
-      : '<div class="frequency-empty">No unsaved study notes match this form and search.</div>';
-    updateCandidateSelection();
   }
 
   function renderSavedRules() {
@@ -240,15 +211,11 @@
     const suspended = visibleSavedRules("suspended");
     document.getElementById("ruleCountBadge").textContent = `${active.length} active`;
     document.getElementById("suspendedCountBadge").textContent = `${suspended.length} suspended`;
-    document.getElementById("personalRulesList").innerHTML = active.length ? active.map(ruleCard).join("") : '<div class="frequency-empty">No saved rules match this form and search. Add study notes from Rules found in logs.</div>';
+    document.getElementById("personalRulesList").innerHTML = active.length ? active.map(ruleCard).join("") : '<div class="frequency-empty">No saved rules match this form and search. Study notes become active rules automatically when saved in the logger.</div>';
     document.getElementById("suspendedRulesList").innerHTML = suspended.length ? suspended.map(ruleCard).join("") : '<div class="frequency-empty">No suspended rules match this form and search.</div>';
-    const count = state.librarySection === "logs" ? visibleCandidates().length : state.librarySection === "suspended" ? suspended.length : active.length;
+    const count = state.librarySection === "suspended" ? suspended.length : active.length;
     document.getElementById("ruleSearchStatus").textContent = query ? `${count} rule${count === 1 ? "" : "s"} match your search` : "";
     updateSavedSelection();
-  }
-
-  function selectedCandidateIndices() {
-    return [...document.querySelectorAll("#ruleCandidatesList [data-candidate-select]:checked")].map((checkbox) => Number(checkbox.closest("[data-candidate-index]").dataset.candidateIndex));
   }
 
   function updateFormScroll() {
@@ -259,7 +226,7 @@
 
   function updateSavedSelection() {
     const toolbar = document.getElementById("savedRuleBulkActions");
-    toolbar.hidden = state.librarySection === "logs";
+    toolbar.hidden = false;
     const visible = visibleSavedRules();
     const shown = visible.filter((rule) => state.selectedRules.has(rule.id)).length;
     const total = state.selectedRules.size;
@@ -336,48 +303,6 @@
     state.reviewKind = "all";
     persistSelectedReview();
     await show("review");
-  }
-
-  function updateCandidateSelection() {
-    const selected = selectedCandidateIndices();
-    const total = visibleCandidates().length;
-    document.getElementById("candidateSelectionCount").textContent = `${selected.length} selected`;
-    document.getElementById("addSelectedCandidatesBtn").disabled = !selected.length;
-    const selectAll = document.getElementById("selectAllCandidates");
-    selectAll.checked = Boolean(total && selected.length === total);
-    selectAll.indeterminate = Boolean(selected.length && selected.length < total);
-  }
-
-  async function addCandidates(indices) {
-    if (state.bulkBusy) return;
-    const uniqueIndices = [...new Set(indices)].filter((index) => state.candidates[index]);
-    if (!uniqueIndices.length) return;
-    const candidates = uniqueIndices.map((index) => scopedCandidate(state.candidates[index]));
-    const bulkActions = document.getElementById("candidateBulkActions");
-    const candidateList = document.getElementById("ruleCandidatesList");
-    bulkActions.setAttribute("aria-busy", "true");
-    candidateList.setAttribute("aria-busy", "true");
-    [...bulkActions.querySelectorAll("button, input"), ...candidateList.querySelectorAll("button, input")].forEach((control) => { control.disabled = true; });
-    let added = 0;
-    let failed = 0;
-    try {
-      for (const candidate of candidates) {
-        try {
-          await app.apiRequest("/api/rules", { method: "POST", body: JSON.stringify(candidate) });
-          added += 1;
-        } catch (error) {
-          failed += 1;
-          console.error("Could not add rule candidate", error);
-        }
-      }
-      app.showToast(failed ? `${added} rule${added === 1 ? "" : "s"} added; ${failed} could not be added.` : `${added} rule${added === 1 ? "" : "s"} added to the library.`);
-      await loadLibrary();
-    } finally {
-      bulkActions.removeAttribute("aria-busy");
-      candidateList.removeAttribute("aria-busy");
-      [...bulkActions.querySelectorAll("button, input"), ...candidateList.querySelectorAll("button, input")].forEach((control) => { control.disabled = false; });
-      updateCandidateSelection();
-    }
   }
 
   async function deleteRule(card) {
@@ -776,8 +701,8 @@
       }
     } catch (error) { app.showToast(error.message); }
   }
-  document.getElementById("ruleSearchInput").addEventListener("input", () => { renderSavedRules(); renderCandidates(); });
-  document.getElementById("ruleSortSelect").addEventListener("change", () => { state.selectionAnchor = null; renderSavedRules(); renderCandidates(); });
+  document.getElementById("ruleSearchInput").addEventListener("input", () => { renderSavedRules(); });
+  document.getElementById("ruleSortSelect").addEventListener("change", () => { state.selectionAnchor = null; renderSavedRules(); });
   document.getElementById("ruleKindTabs").addEventListener("click", (event) => {
     const tab = event.target.closest("[data-library-kind]");
     if (!tab || state.bulkBusy) return;
@@ -785,7 +710,6 @@
     state.selectionAnchor = null;
     renderFormTabs();
     renderSavedRules();
-    renderCandidates();
     views.library.querySelector(".rule-library-panels").scrollTop = 0;
   });
   document.getElementById("bulkRulePattern").innerHTML = patternOptions("");
@@ -829,7 +753,6 @@
       item.tabIndex = selected ? 0 : -1;
     });
     renderSavedRules();
-    renderCandidates();
     views.library.querySelector(".rule-library-panels").scrollTop = 0;
   });
   for (const id of ["ruleLibraryTabs", "ruleKindTabs", "ruleFormTabs"]) document.getElementById(id).addEventListener("keydown", (event) => {
@@ -860,20 +783,6 @@
     state.selectionAnchor = ruleId;
     updateSavedSelection();
   });
-  document.getElementById("ruleCandidatesList").addEventListener("click", (event) => {
-    const button = event.target.closest("[data-candidate-action='add']");
-    const card = event.target.closest("[data-candidate-index]");
-    if (button && card) addCandidates([Number(card.dataset.candidateIndex)]).catch((error) => app.showToast(error.message));
-  });
-  document.getElementById("ruleCandidatesList").addEventListener("change", (event) => {
-    if (event.target.matches("[data-candidate-select]")) updateCandidateSelection();
-  });
-  document.getElementById("selectAllCandidates").addEventListener("change", (event) => {
-    document.querySelectorAll("#ruleCandidatesList [data-candidate-select]").forEach((checkbox) => { checkbox.checked = event.target.checked; });
-    updateCandidateSelection();
-  });
-  document.getElementById("addSelectedCandidatesBtn").addEventListener("click", () => addCandidates(selectedCandidateIndices()).catch((error) => app.showToast(error.message)));
-  document.getElementById("addAllCandidatesBtn").addEventListener("click", () => addCandidates(visibleCandidates().map(({ index }) => index)).catch((error) => app.showToast(error.message)));
   document.getElementById("reviewRulesList").addEventListener("click", (event) => {
     const responseButton = event.target.closest("[data-review-response]");
     const suspendButton = event.target.closest("[data-review-action='suspend']");
