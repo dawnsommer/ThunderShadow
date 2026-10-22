@@ -1,10 +1,10 @@
 # ThunderShadow project handoff
 
-Last refreshed: 2026-10-19. Read this before changing the project. Source code and the current `git diff` override this summary if they disagree.
+Last refreshed: 2026-10-23. Read this before changing the project. Source code and the current `git diff` override this summary if they disagree.
 
 ## Snapshot
 
-- Current release: `22.0.0-auto-rules` (`VERSION`).
+- Current release: `22.0.1-deploy-refresh` (`VERSION`).
 - Product: framework-free, static, installable NBME/CMS error-logging PWA deployed from the repository root on GitHub Pages.
 - Production URL/OAuth return URL: `https://dawnsommer.github.io/ThunderShadow/`.
 - No build step, Node server, package manager, Firebase, Firestore, SQLite, or backend API exists in this edition. The old server files are intentionally deleted.
@@ -18,12 +18,13 @@ Serve the root over HTTP (service workers and module-like browser behavior shoul
 python3 -m http.server 8765 --bind 127.0.0.1
 ```
 
-Open `http://127.0.0.1:8765/`. There is no dependency install or test runner. Minimum static checks after changes:
+Open `http://127.0.0.1:8765/`. There is no dependency install or app build. Run the focused update regression checks with `node --test test/updates.test.mjs`. Minimum static checks after changes:
 
 ```bash
 for file in js/*.js service-worker.js; do node --check "$file"; done
 python3 -m json.tool manifest.json >/dev/null
 python3 -m json.tool manifest.webmanifest >/dev/null
+node tools/release.mjs --check
 ```
 
 Also confirm every `service-worker.js` shell asset exists, HTML IDs remain unique, all static `getElementById`/`$(...)` targets still exist, and test desktop plus phone Touch UI manually. For cloud changes, test signed-out local use, OAuth return, clean sync, dirty sync, offline edit/reconnect, second-browser restore, deletion propagation, and disconnect.
@@ -40,14 +41,16 @@ Also confirm every `service-worker.js` shell asset exists, HTML IDs remain uniqu
 - `js/analytics.js`: frequencies, recurrence/trends, predefined combinations, duplicate similarity, and review scheduling.
 - `js/browser-api.js`: authoritative local persistence, automatic log-to-rule reconciliation, canonical rule IDs, validation, merge engine, backups/encryption/exports, and in-page `/api/*` `Response` router.
 - `js/sync.js`: thin local mutation/draft/status adapter retained for the UI; it does not provide a network outbox or real conflict queue.
-- `js/app.js`: core form/logger UI, autosave, keyboard/touch controls, primary-view lifecycle, theme/rain/scale, JSON backup/restore, and service-worker registration.
+- `js/app.js`: core form/logger UI, autosave, keyboard/touch controls, primary-view lifecycle, theme/rain/scale, JSON backup/restore, and a save-queue flush that can block update reloads on save failure.
 - `js/v3.js`: rule library, search/tag editing, analytics, bulk card actions, selected exam review sessions, filtered daily reviews/keyboard ratings, partitioned settings, device-local review text sizing, snapshot restore, encrypted portable backup, and exports.
 - `js/cloud-sync.js`: optional Cloudflare Worker OAuth plus Google Drive `appDataFolder` synchronization.
-- `service-worker.js`: shell cache only; network-first navigation/code, cache-first other same-origin assets. It never performs cloud sync.
+- `js/updates.js`: generated running release/build metadata, relative worker registration with `updateViaCache: "none"`, persistent Updated — Reload notice, 30-minute foreground update checks, and the Settings → Interface → App updates repair action. Reloads drain pending logger saves and stop on save failure.
+- `service-worker.js`: complete shell precache with HTTP-cache bypass and build-marker validation before activation; exact versioned-asset cache hits; revalidated navigation with a three-second offline fallback. Late/different-build HTML does not replace the offline shell. Only its `thundershadow-github-shell-` caches are read/deleted and only in-scope shell requests/navigation are intercepted. It never performs cloud sync.
+- `tools/release.mjs`: dependency-free release preparation; bumps `VERSION` patch/build, aligns HTML/JS/CSS/manifest asset queries and generated worker/update constants, discovers shell files, and writes `release.json`. `--check` validates without writing. `test/updates.test.mjs` uses Node’s built-in runner for release/cache regression checks.
 - `manifest.json` and `manifest.webmanifest`: identical relative-scope PWA manifests; keep both for compatibility.
 - `privacy.html`: public privacy policy. `assets/`: SVG and 180/192/512 PNG icons.
 
-Script dependency order in `index.html` is significant: `config` → `reasoning` → `analytics` → `browser-api` → `sync` → `app` → `v3` → `cloud-sync`. `theme-init` and `uuid` load in `<head>`.
+Script dependency order in `index.html` is significant: `config` → `reasoning` → `analytics` → `browser-api` → `sync` → `app` → `v3` → `cloud-sync` → `updates`. `theme-init` and `uuid` load in `<head>`.
 
 ## Data and behavior
 
@@ -94,9 +97,9 @@ Never weaken these invariants: local-first operation, non-destructive cloud merg
 
 ## Deployment and current cautions
 
-Publish repository root from `main` with GitHub Pages. If the production path changes, update both Worker allow-list/configuration and `js/config.js`. On Firebase-to-Drive migration, first connect a browser whose IndexedDB is authoritative, seed Drive, then verify a second-browser restore before clearing the first browser.
+Before every deploy, run `node tools/release.mjs`, validate with `node tools/release.mjs --check` and `node --test test/updates.test.mjs`, and commit all generated files. Publish repository root from `main` with GitHub Pages. If the production path changes, update both Worker allow-list/configuration and `js/config.js`. On Firebase-to-Drive migration, first connect a browser whose IndexedDB is authoritative, seed Drive, then verify a second-browser restore before clearing the first browser.
 
-Current cache release is `thundershadow-github-shell-v43`; both the shell and `index.html` use code/style query key `?v=43`. JSON package version is 7; versions 1–6 remain accepted, with IndexedDB schema version 1 unchanged.
+The running release/build is shown in Settings → Interface → App updates and recorded in `VERSION` / `release.json`. Release preparation keeps the worker cache suffix and every runtime asset query aligned; `index.html` stays unversioned. The repair action fetches the latest `release.json` and full shell before removing only this app’s caches/exact worker registration; it does not clear localStorage or IndexedDB. Failed downloads retain the current offline cache. Existing users may need one or two ordinary reloads when first moving from the legacy worker. JSON package version is 7; versions 1–6 remain accepted, with IndexedDB schema version 1 unchanged.
 
 Settings shows “Upgrade notes” only when older metadata remains. The idempotent upgrade creates a safety snapshot when IndexedDB is available, fills note tags/IDs and exact-match source links, and preserves rule IDs, wording, review history, and due dates. Older patterned notes default to Broad Patterns; unpatterned notes default to Clinical Patterns. Explicit kind selections and existing patterns remain intact. Unknown/deleted sources remain unavailable instead of being guessed. Local note saves are serialized and keep newer edits/drafts when an older save completes.
 
@@ -110,9 +113,11 @@ Current logger-header verification: isolated Chrome checks confirm a contained t
 
 Current form-browser verification: isolated Chrome checks cover NBME/CMS separation, exam-type priority/name fallback, Other visibility, date sorting after editing an old form, category search/empty states, keyboard tabs, category retention, NBME/CMS creation defaults, actual form creation and note saving, stable global header bounds across every primary area and an open form, dark Desktop at 120% scale, and scrolling 30 synthetic forms. Header/layout screenshots were checked at 1440×900, 1194×834, 1024×768, and 768×1024 in Desktop/Touch plus 390×844 and 320×720 Touch; no header overlap or page horizontal overflow. Native Safari/cloud/deployment were not reverified.
 
+Current deploy-update verification: eight Node regression checks cover complete install/failure gating, scoped cache cleanup, exact asset URLs, offline browser-reload fallback, late/different-build HTML, repair bypass, first-install/later-update notice behavior, and release generation/discovery/read-only checks. Isolated Chrome with simulated GitHub Pages max-age=600 headers verifies consecutive releases, the update notice/Reload, zero script/style server requests on a controlled reload, offline edits/reloads, a three-second slow-navigation fallback, incomplete deploys, failed repair downloads, failed-save reload blocking and draft recovery, 30-minute foreground throttling, and latest-release repair from a stale page. Synthetic IndexedDB notes and a sibling app’s cache/localStorage/worker registration survive. Desktop/390px Touch Settings and notice screenshots were checked. Production deployment, live cloud/OAuth, and native Safari/iPad update behavior were not reverified.
+
 Current verification: JavaScript syntax, both JSON manifests, manifest equality, shell-asset existence, static DOM targets, unique HTML IDs, and `git diff --check` pass. Isolated synthetic browser checks cover a 96-card deck plus duplicate cases: multi-selection/Shift-click, hidden selections, kind/form tabs, mouse scrolling, keyboard tabs, pattern sorting, bulk due/suspend/resume/pattern/kind actions, failure selection retention, a 90-card selected queue across reloads, keyboard ratings, filtered completion, and return to daily review. Responsive checks cover 768×1024, 1024×768, and 1194×834 in both UI modes, 1440×900 Desktop, Desktop scale to 120%, and 320px/390px Touch plus compact landscape at 140% text with reachable ratings. A temporary Node VM check verifies selected queues beyond 30, stable order/deduplication, no queue-entry mutation, missing/suspended exclusions, input validation, history/date/source preservation through edits, suspension/resume/due/rating behavior, duplicate rejection, dirty-ledger events, and backup roundtrip. These are isolated checks, not a committed suite. Cloud/OAuth, multi-device merge, native iPad Safari, and production deployment were not reverified.
 
-There is no automated integration suite after the server removal. The conflict dialog and `handleServerEvent` compatibility paths remain in the UI, while `js/sync.js` conflict/pending methods are no-ops; do not describe them as active multi-client conflict UI without implementing and testing that behavior.
+Focused update regression checks are committed at `test/updates.test.mjs`; there is no general application integration suite after the server removal. The conflict dialog and `handleServerEvent` compatibility paths remain in the UI, while `js/sync.js` conflict/pending methods are no-ops; do not describe them as active multi-client conflict UI without implementing and testing that behavior.
 
 ## Handoff maintenance
 

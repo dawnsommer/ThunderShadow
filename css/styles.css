@@ -1573,6 +1573,15 @@ kbd {
   to { opacity: 1; transform: translateY(0); }
 }
 
+.update-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: auto;
+}
+.update-notice .button { min-height: 36px; }
+
 @media (max-width: 1180px) {
   .logger-content {
     grid-template-columns: minmax(245px, 0.8fr) minmax(300px, 1fr) minmax(300px, 1.02fr);

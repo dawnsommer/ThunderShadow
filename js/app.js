@@ -372,6 +372,7 @@
 
   async function newEntry() { if (currentEntry()) await saveEntry(true); const trailing = activeEntries().find((e) => !isLogged(e)); if (trailing) { state.currentEntryNumber = trailing.entryNumber; renderLogger(); return trailing; } const provisionalEntryNumber = state.currentForm.maxEntryNumber + 1; let entry; try { const result = await mutate(`/api/forms/${encodeURIComponent(state.currentForm.id)}/entries`, { method: "POST", body: {}, entity: { type: "entry-allocation", formId: state.currentForm.id, provisionalEntryNumber } }); entry = result.data; if (!entry) { entry = { ...blankEntry(provisionalEntryNumber), revision: 1 }; showToast("New entry is offline; it will sync when reconnected."); } } catch { entry = { ...blankEntry(provisionalEntryNumber), revision: 1 }; showToast("New entry is offline; it will sync when reconnected."); } replaceEntry(entry); state.currentEntryNumber = entry.entryNumber; state.filter = "active"; renderLogger(); return entry; }
   let entrySaveQueue = Promise.resolve();
+  let entrySaveError = null;
   async function saveEntry(immediate = false) {
     clearTimeout(state.saveTimer); state.saveTimer = 0;
     const active = currentEntry();
@@ -383,6 +384,7 @@
       const entity = { type: "entry", formId, entryNumber: snapshot.entryNumber };
       try {
         const result = await mutate(`/api/forms/${encodeURIComponent(formId)}/entries/${snapshot.entryNumber}`, { method: "PUT", body, entity });
+        entrySaveError = null;
         const live = state.currentForm?.id === formId ? state.currentForm.entries.find((entry) => entry.entryNumber === snapshot.entryNumber) : null;
         const unchanged = live && ["errorCode", "pattern", "reasoningNote", "noteKind"].every((key) => live[key] === snapshot[key]) && JSON.stringify(live.speedFlags) === JSON.stringify(snapshot.speedFlags);
         if (result.data && unchanged) {
@@ -393,7 +395,7 @@
           window.ThunderShadowSync.saveDraft(entity, live);
         }
         setSaveState(live && !unchanged ? "Saving…" : "Saved");
-      } catch (error) { setSaveState("Save failed"); showToast(error.message); }
+      } catch (error) { entrySaveError = error; setSaveState("Save failed"); showToast(error.message); }
       if (state.currentForm?.id === formId) { renderNavigatorEntry(snapshot.entryNumber); renderProgress(); }
     };
     const enqueue = () => { state.saveTimer = 0; entrySaveQueue = entrySaveQueue.then(perform, perform); return entrySaveQueue; };
@@ -637,8 +639,18 @@
     });
   }
 
-  async function initialize() { activatePrimaryView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyRainEffect(localStorage.getItem(RAIN_EFFECT_KEY) || "on"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); renderSyncStatus({ state: "local", cloudState: "signedout" }, "sync"); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); queueMicrotask(refreshSyncStatus); if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {}); }
+  async function flushPendingEntry({ requireSaved = false } = {}) {
+    let pending;
+    do {
+      if (state.saveTimer) saveEntry(true);
+      pending = entrySaveQueue;
+      await pending;
+    } while (state.saveTimer || pending !== entrySaveQueue);
+    if (requireSaved && entrySaveError) throw new Error("Your latest note could not be saved. Retry saving before reloading.");
+  }
 
-  window.ThunderShadowApp = { apiRequest, rawApiRequest, downloadFromApi, showLibrary, showToast, activateAuxiliaryView, flushPendingEntry: async () => { if (state.saveTimer) await saveEntry(true); else await entrySaveQueue; }, refreshAccess: async () => {}, refreshForms: async () => { state.forms = normalizeForms(await apiRequest("/api/forms")); if (!state.currentForm) renderLibrary(); }, getForms: () => state.forms.map(({ id, name, date }) => ({ id, name, date })), openFormQuestion: async (formId, entryNumber) => { const form = state.forms.find((f) => f.id === formId); if (!form) throw new Error("Source form is no longer available."); await openForm(form); changeEntry(Number(entryNumber)); }, hideCoreViews: () => { hideAllPrimaryViews(); el.loggerTopActions.hidden = true; document.documentElement.dataset.activeView = "none"; syncTouchLayout(); } };
+  async function initialize() { activatePrimaryView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyRainEffect(localStorage.getItem(RAIN_EFFECT_KEY) || "on"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); renderSyncStatus({ state: "local", cloudState: "signedout" }, "sync"); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); queueMicrotask(refreshSyncStatus);  }
+
+  window.ThunderShadowApp = { apiRequest, rawApiRequest, downloadFromApi, showLibrary, showToast, activateAuxiliaryView, flushPendingEntry, refreshAccess: async () => {}, refreshForms: async () => { state.forms = normalizeForms(await apiRequest("/api/forms")); if (!state.currentForm) renderLibrary(); }, getForms: () => state.forms.map(({ id, name, date }) => ({ id, name, date })), openFormQuestion: async (formId, entryNumber) => { const form = state.forms.find((f) => f.id === formId); if (!form) throw new Error("Source form is no longer available."); await openForm(form); changeEntry(Number(entryNumber)); }, hideCoreViews: () => { hideAllPrimaryViews(); el.loggerTopActions.hidden = true; document.documentElement.dataset.activeView = "none"; syncTouchLayout(); } };
   initialize();
 })();

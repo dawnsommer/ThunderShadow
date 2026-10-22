@@ -9,15 +9,16 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ThunderShadow">
   <meta name="application-name" content="ThunderShadow">
+  <meta name="thundershadow-build" content="44">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=43"></script>
-  <script src="js/uuid.js?v=43"></script>
-  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/icon-180.png">
-  <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/styles.css?v=43">
-  <link rel="stylesheet" href="css/storm.css?v=43">
+  <script src="js/theme-init.js?v=44"></script>
+  <script src="js/uuid.js?v=44"></script>
+  <link rel="icon" href="assets/icon.svg?v=44" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png?v=44">
+  <link rel="manifest" href="manifest.json?v=44">
+  <link rel="stylesheet" href="css/styles.css?v=44">
+  <link rel="stylesheet" href="css/storm.css?v=44">
 </head>
 <body>
   <div class="storm-scene" aria-hidden="true">
@@ -483,6 +484,12 @@
                 </select>
               </div>
             </section>
+            <section class="panel v3-panel settings-card">
+              <div><h2>App updates</h2><p id="appVersion" class="muted">Loading version…</p></div>
+              <p class="muted">New versions download automatically. Reload to use an available update, or fetch the latest version here. Your saved study data stays on this device.</p>
+              <div class="settings-card__actions"><button id="reloadLatestBtn" class="button button--ghost" type="button">Reload latest version</button></div>
+              <p id="appUpdateStatus" class="muted" role="status"></p>
+            </section>
             <section class="panel v3-panel settings-card touch-section-preferences">
               <div><h2>Phone logger</h2><p class="muted">Choose which optional sections open expanded.</p></div>
               <div class="touch-section-preference-row">
@@ -723,13 +730,14 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=43" defer></script>
-  <script src="js/reasoning.js?v=43" defer></script>
-  <script src="js/analytics.js?v=43" defer></script>
-  <script src="js/browser-api.js?v=43" defer></script>
-  <script src="js/sync.js?v=43" defer></script>
-  <script src="js/app.js?v=43" defer></script>
-  <script src="js/v3.js?v=43" defer></script>
-  <script src="js/cloud-sync.js?v=43" defer></script>
+  <script src="js/config.js?v=44" defer></script>
+  <script src="js/reasoning.js?v=44" defer></script>
+  <script src="js/analytics.js?v=44" defer></script>
+  <script src="js/browser-api.js?v=44" defer></script>
+  <script src="js/sync.js?v=44" defer></script>
+  <script src="js/app.js?v=44" defer></script>
+  <script src="js/v3.js?v=44" defer></script>
+  <script src="js/cloud-sync.js?v=44" defer></script>
+  <script src="js/updates.js?v=44" defer></script>
 </body>
 </html>
