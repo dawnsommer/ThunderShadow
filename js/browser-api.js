@@ -26,7 +26,7 @@
   const DEFAULT_REVIEW_INTERVALS = Object.freeze({ again: 1, hard: 3, good: 7, easy: 30 });
   const DEFAULT_REVIEW_SHORTCUTS = Object.freeze({ again: "1", hard: "2", good: "3", easy: "4", quickGood: "Space" });
   const ERROR_CODES = new Set(["1", "2", "3", "4", "5", "6", "7"]);
-  const { PATTERNS, SPEED_FLAGS, PATTERN_VALUES, SPEED_VALUES, canonicalPattern, canonicalSpeedFlags, canonicalNoteKind, noteIdFor } = window.ThunderShadowReasoning;
+  const { PATTERNS, SPEED_FLAGS, PATTERN_VALUES, SPEED_VALUES, canonicalPattern, canonicalSpeedFlags, canonicalNoteKind, noteIdFor, normalizeExamItem } = window.ThunderShadowReasoning;
   const { calculateAnalytics, findRuleDuplicates, nextReviewSchedule, normalizedRuleText } = window.ThunderShadowAnalytics;
   const PATTERN_LABELS = new Map(PATTERNS.map((item) => [item.value, `${item.code} — ${item.label}`]));
   const SPEED_LABELS = new Map(SPEED_FLAGS.map((item) => [item.value, `${item.code} — ${item.label}`]));
@@ -324,7 +324,7 @@
   }
 
   function blankEntry(number) {
-    return { number, entryNumber: number, originalQuestionNumber: null, errorCode: "", pattern: "", speedFlags: [], reasoningNote: "", manualRule: "", noteKind: "clinical", deleted: false, createdAt: null, updatedAt: null, revision: 0 };
+    return { number, entryNumber: number, originalQuestionNumber: null, errorCode: "", pattern: "", speedFlags: [], reasoningNote: "", manualRule: "", noteKind: "clinical", examItem: "", deleted: false, createdAt: null, updatedAt: null, revision: 0 };
   }
 
   function isLogged(entry) {
@@ -350,6 +350,7 @@
       reasoningNote,
       noteKind: canonicalNoteKind(input?.noteKind, pattern),
       manualRule: reasoningNote,
+      examItem: normalizeExamItem(input?.examItem) || "",
       ruleId: typeof input?.ruleId === "string" ? input.ruleId : null,
       ruleSyncIdentity: typeof input?.ruleSyncIdentity === "string" ? input.ruleSyncIdentity : null,
       ruleSyncText: typeof input?.ruleSyncText === "string" ? input.ruleSyncText : null,
@@ -664,10 +665,10 @@
     return safe || "ThunderShadow";
   }
   function formToTsv(form) {
-    const headers = ["ThunderShadowID", "Form", "Date", "Entry_Number", "Error_Code", "Rule_Pattern", "Speed_Flags", "Reasoning_Note", "Note_Type", "Form_ID", "Note_ID", "Rule_Text"];
+    const headers = ["ThunderShadowID", "Form", "Date", "Entry_Number", "Error_Code", "Rule_Pattern", "Speed_Flags", "Reasoning_Note", "Note_Type", "Form_ID", "Note_ID", "Rule_Text", "Exam_Item"];
     const rows = (form.entries || []).filter(isLogged).sort((a, b) => a.entryNumber - b.entryNumber).map((entry) => [
       entry.exportRule ? thunderShadowId(entry.exportRule.id) : "", form.name, form.date, entry.entryNumber, entry.errorCode, PATTERN_LABELS.get(entry.pattern) || "",
-      (entry.speedFlags || []).map((flag) => SPEED_LABELS.get(flag) || flag).join(" | "), tsvEscape(entry.reasoningNote, true), entry.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern", form.id, noteIdFor(form.id, entry.entryNumber), tsvEscape(entry.exportRule?.ruleText || "", true)
+      (entry.speedFlags || []).map((flag) => SPEED_LABELS.get(flag) || flag).join(" | "), tsvEscape(entry.reasoningNote, true), entry.noteKind === "reasoning" ? "Broad Pattern" : "Clinical Pattern", form.id, noteIdFor(form.id, entry.entryNumber), tsvEscape(entry.exportRule?.ruleText || "", true), entry.examItem || ""
     ].map((value, index) => [7, 11].includes(index) ? value : tsvEscape(value)).map(ankiTsvCell).join("\t"));
     return [headers.join("\t"), ...rows].join("\n");
   }

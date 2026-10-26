@@ -2,7 +2,7 @@
    Only transform/opacity change. No animated blur, blend modes, JS frame loop,
    or background-position repaint. All themes/devices share the same renderer. */
 .storm-scene {
-  --storm-rain: url('../assets/rain-dark.svg?v=44');
+  --storm-rain: url('../assets/rain-dark.svg?v=45');
   --storm-rain-opacity: .64;
   --storm-cloud-light: rgba(91, 133, 166, .62);
   --storm-cloud-shadow: rgba(7, 19, 34, .8);
@@ -17,7 +17,7 @@
     linear-gradient(170deg, #111f30 0%, #091421 48%, #040b13 100%);
 }
 html[data-theme="light"] .storm-scene {
-  --storm-rain: url('../assets/rain-light.svg?v=44');
+  --storm-rain: url('../assets/rain-light.svg?v=45');
   --storm-rain-opacity: .74;
   --storm-cloud-light: rgba(231, 242, 248, .9);
   --storm-cloud-shadow: rgba(70, 104, 128, .52);
@@ -59,7 +59,7 @@ html[data-theme="light"] .storm-scene {
   height: min(440px, 58vh);
   opacity: 0;
   background:
-    url('../assets/lightning.svg?v=44') 56% 0 / auto 88% no-repeat,
+    url('../assets/lightning.svg?v=45') 56% 0 / auto 88% no-repeat,
     radial-gradient(ellipse at 54% 15%, rgba(230, 246, 255, .88), rgba(190, 222, 244, .14) 42%, transparent 70%);
   /* A single distant flash every 24s, then six opacity steps to darkness. */
   animation: storm-distant-lightning 24s step-end infinite;

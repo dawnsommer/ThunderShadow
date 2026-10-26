@@ -136,3 +136,21 @@ test("release command bumps runtime/docs together, discovers files, and check is
     assert.throws(() => execFileSync(process.execPath, ["tools/release.mjs", "--check"], { cwd: directory, stdio: "pipe" }));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("exam item normalisation accepts block.item and rejects everything else", async () => {
+  const context = { window: {} };
+  vm.runInNewContext(await readFile(path.join(root, "js/reasoning.js"), "utf8"), context);
+  const { normalizeExamItem } = context.window.ThunderShadowReasoning;
+  for (const [input, expected] of [["3.12", "3.12"], ["3.1", "3.01"], [" 4.01 ", "4.01"], ["10.5", "10.05"], ["", ""], [null, ""], [undefined, ""], ["  ", ""]]) assert.equal(normalizeExamItem(input), expected, String(input));
+  for (const input of ["3", "3.", ".12", "3.123", "a.12", "3.12.1", "0.05", "3.00", "3-12", "Item 3.12"]) assert.equal(normalizeExamItem(input), null, input);
+});
+
+test("Exam_Item is the last column of the log TSV and entries persist the field", async () => {
+  const api = await readFile(path.join(root, "js/browser-api.js"), "utf8");
+  const header = api.match(/const headers = \["ThunderShadowID", "Form"[^\]]*\]/)[0];
+  const columns = JSON.parse(header.slice(header.indexOf("[")));
+  assert.deepEqual(columns.slice(0, 12), ["ThunderShadowID", "Form", "Date", "Entry_Number", "Error_Code", "Rule_Pattern", "Speed_Flags", "Reasoning_Note", "Note_Type", "Form_ID", "Note_ID", "Rule_Text"]);
+  assert.equal(columns.at(-1), "Exam_Item");
+  assert.equal(columns.length, 13);
+  assert.match(api, /examItem: normalizeExamItem\(input\?\.examItem\) \|\| ""/);
+});

@@ -9,16 +9,16 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ThunderShadow">
   <meta name="application-name" content="ThunderShadow">
-  <meta name="thundershadow-build" content="44">
+  <meta name="thundershadow-build" content="45">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=44"></script>
-  <script src="js/uuid.js?v=44"></script>
-  <link rel="icon" href="assets/icon.svg?v=44" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/icon-180.png?v=44">
-  <link rel="manifest" href="manifest.json?v=44">
-  <link rel="stylesheet" href="css/styles.css?v=44">
-  <link rel="stylesheet" href="css/storm.css?v=44">
+  <script src="js/theme-init.js?v=45"></script>
+  <script src="js/uuid.js?v=45"></script>
+  <link rel="icon" href="assets/icon.svg?v=45" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png?v=45">
+  <link rel="manifest" href="manifest.json?v=45">
+  <link rel="stylesheet" href="css/styles.css?v=45">
+  <link rel="stylesheet" href="css/storm.css?v=45">
 </head>
 <body>
   <div class="storm-scene" aria-hidden="true">
@@ -250,6 +250,11 @@
                   <div>
                     <h3>Error code</h3>
                     <p>Choose one · keys 1–7</p>
+                  </div>
+                  <div id="examItemField" class="exam-item">
+                    <input id="examItemInput" class="exam-item__input" type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" placeholder="3.12" aria-label="Simulator item (block.item)" aria-describedby="examItemMessage" title="Simulator item, e.g. 3.12 (optional)">
+                    <button id="examItemPasteBtn" class="exam-item__paste" type="button" aria-label="Paste simulator item" title="Paste simulator item"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg></button>
+                    <span id="examItemMessage" class="exam-item__message" role="status" aria-live="polite"></span>
                   </div>
                   <div class="entry-delete-actions"><button id="clearQuestionBtn" class="button button--danger-ghost" type="button" title="Delete current entry">Delete Entry</button><button id="permanentDeleteEntryBtn" class="button button--danger" type="button" hidden>Delete permanently</button></div>
                 </div>
@@ -730,14 +735,14 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=44" defer></script>
-  <script src="js/reasoning.js?v=44" defer></script>
-  <script src="js/analytics.js?v=44" defer></script>
-  <script src="js/browser-api.js?v=44" defer></script>
-  <script src="js/sync.js?v=44" defer></script>
-  <script src="js/app.js?v=44" defer></script>
-  <script src="js/v3.js?v=44" defer></script>
-  <script src="js/cloud-sync.js?v=44" defer></script>
-  <script src="js/updates.js?v=44" defer></script>
+  <script src="js/config.js?v=45" defer></script>
+  <script src="js/reasoning.js?v=45" defer></script>
+  <script src="js/analytics.js?v=45" defer></script>
+  <script src="js/browser-api.js?v=45" defer></script>
+  <script src="js/sync.js?v=45" defer></script>
+  <script src="js/app.js?v=45" defer></script>
+  <script src="js/v3.js?v=45" defer></script>
+  <script src="js/cloud-sync.js?v=45" defer></script>
+  <script src="js/updates.js?v=45" defer></script>
 </body>
 </html>

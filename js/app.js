@@ -32,7 +32,7 @@
     emptyLibrary: $("emptyLibrary"), formSearchInput: $("formSearchInput"),
     loggerTopActions: $("loggerTopActions"), homeBtn: $("homeBtn"), questionGrid: $("questionNumberGrid"),
     rangeTabs: $("questionRangeTabs"), errorRows: $("errorCodeRows"), patternRows: $("patternRows"), speedButtons: $("speedFlagButtons"),
-    note: $("manualRuleInput"), saveState: $("saveState"),
+    note: $("manualRuleInput"), examItem: $("examItemInput"), saveState: $("saveState"),
     topNumber: $("topQuestionNumber"), topTotal: $("topQuestionTotal"), progress: $("loggerProgressText"), progressBar: $("loggerProgressBar"),
     formName: $("loggerFormName"), formSubject: $("loggerFormSubject"), formDialog: $("formDialog"), formCreate: $("formCreateForm"),
     formNameInput: $("newFormName"), lengthInput: $("newFormQuestionCount"), dateInput: $("newFormDate"), subjectInput: $("newFormSubject"),
@@ -57,8 +57,8 @@
   const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
   const isEditable = (target) => target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable;
   const isLogged = (entry) => Boolean(entry && !entry.deleted && (entry.errorCode || entry.pattern || entry.reasoningNote?.trim() || entry.speedFlags?.length));
-  const blankEntry = (number) => ({ number, entryNumber: number, errorCode: "", pattern: "", speedFlags: [], reasoningNote: "", manualRule: "", noteKind: "clinical", deleted: false, revision: 0 });
-  const normalizeEntry = (entry) => { const rawPattern = entry?.pattern || ""; const rawSpeed = Array.isArray(entry?.speedFlags) ? entry.speedFlags : []; return ({ ...blankEntry(entry?.entryNumber || entry?.number || 1), ...entry, entryNumber: entry?.entryNumber || entry?.number || 1, reasoningNote: entry?.reasoningNote ?? entry?.manualRule ?? "", noteKind: window.ThunderShadowReasoning.canonicalNoteKind(entry?.noteKind, rawPattern), pattern: RULE_PATTERNS.some(([value]) => value === rawPattern) ? rawPattern : (LEGACY_PATTERN_MAP[rawPattern] || ""), speedFlags: [...new Set(rawSpeed.map((value) => LEGACY_SPEED_MAP[value]).filter(Boolean))], deleted: Boolean(entry?.deleted) }); };
+  const blankEntry = (number) => ({ number, entryNumber: number, errorCode: "", pattern: "", speedFlags: [], reasoningNote: "", manualRule: "", noteKind: "clinical", examItem: "", deleted: false, revision: 0 });
+  const normalizeEntry = (entry) => { const rawPattern = entry?.pattern || ""; const rawSpeed = Array.isArray(entry?.speedFlags) ? entry.speedFlags : []; return ({ ...blankEntry(entry?.entryNumber || entry?.number || 1), ...entry, entryNumber: entry?.entryNumber || entry?.number || 1, reasoningNote: entry?.reasoningNote ?? entry?.manualRule ?? "", examItem: window.ThunderShadowReasoning.normalizeExamItem(entry?.examItem) || "", noteKind: window.ThunderShadowReasoning.canonicalNoteKind(entry?.noteKind, rawPattern), pattern: RULE_PATTERNS.some(([value]) => value === rawPattern) ? rawPattern : (LEGACY_PATTERN_MAP[rawPattern] || ""), speedFlags: [...new Set(rawSpeed.map((value) => LEGACY_SPEED_MAP[value]).filter(Boolean))], deleted: Boolean(entry?.deleted) }); };
   const normalizeForm = (form) => {
     // Drive/IndexedDB migration can briefly surface sparse records on iOS.
     // Never dereference a missing form; callers can safely filter null values.
@@ -386,7 +386,7 @@
         const result = await mutate(`/api/forms/${encodeURIComponent(formId)}/entries/${snapshot.entryNumber}`, { method: "PUT", body, entity });
         entrySaveError = null;
         const live = state.currentForm?.id === formId ? state.currentForm.entries.find((entry) => entry.entryNumber === snapshot.entryNumber) : null;
-        const unchanged = live && ["errorCode", "pattern", "reasoningNote", "noteKind"].every((key) => live[key] === snapshot[key]) && JSON.stringify(live.speedFlags) === JSON.stringify(snapshot.speedFlags);
+        const unchanged = live && ["errorCode", "pattern", "reasoningNote", "noteKind", "examItem"].every((key) => live[key] === snapshot[key]) && JSON.stringify(live.speedFlags) === JSON.stringify(snapshot.speedFlags);
         if (result.data && unchanged) {
           replaceEntry(result.data);
           if (state.currentEntryNumber === snapshot.entryNumber) renderChoiceState();
@@ -417,7 +417,7 @@
     tag.title = `${reasoning ? "Broad Pattern" : "Clinical Pattern"} selected. Switch between clinical cues and broader question-solving skills.`;
     $("notePatternLabel").textContent = pattern ? `${pattern[3]} · ${pattern[1]}` : "No pattern";
     el.note.placeholder = reasoning ? "Next time, what question-solving habit should you apply?" : (pattern ? pattern[5] : "Which clinical cues or reasoning pathway should you remember?");
-    $("noteSourceLabel").textContent = `${state.currentForm.name} · Entry ${entry.entryNumber}`;
+    $("noteSourceLabel").textContent = `${state.currentForm.name} · Entry ${entry.entryNumber}${entry.examItem ? ` · Item ${entry.examItem}` : ""}`;
     $("noteSourceLabel").title = window.ThunderShadowReasoning.noteIdFor(state.currentForm.id, entry.entryNumber);
   }
 
@@ -442,14 +442,36 @@
     button.classList.toggle("is-deleted", entry.deleted);
     button.classList.toggle("is-current", entry.entryNumber === state.currentEntryNumber);
     button.classList.toggle("is-selected", state.selected.has(entry.entryNumber));
-    button.setAttribute("aria-label", `Entry ${entry.entryNumber}${entry.deleted ? ", deleted" : ""}${patternLabel ? `, pattern ${patternLabel}` : ""}`);
+    button.setAttribute("aria-label", `Entry ${entry.entryNumber}${entry.examItem ? `, item ${entry.examItem}` : ""}${entry.deleted ? ", deleted" : ""}${patternLabel ? `, pattern ${patternLabel}` : ""}`);
     button.setAttribute("aria-pressed", String(state.selectionMode && state.selected.has(entry.entryNumber)));
     const markers = button.querySelector(".question-number__markers");
     if (markers) markers.innerHTML = `${patternIndex >= 0 ? `<i class="navigator-pattern navigator-pattern--${patternIndex + 1}" title="${patternLabel}" aria-hidden="true"></i>` : ""}${entry.errorCode ? `<b>${entry.errorCode}</b>` : ""}`;
   }
   function renderNavigator() { const entries = state.currentForm.entries.filter((e) => state.filter === "deleted" ? e.deleted : !e.deleted); el.questionGrid.innerHTML = entries.map((entry) => { const patternIndex = RULE_PATTERNS.findIndex(([id]) => id === entry.pattern); const patternLabel = patternIndex >= 0 ? RULE_PATTERNS[patternIndex][1] : ""; const classes = ["question-number", isLogged(entry) ? "is-logged" : "is-draft", entry.deleted ? "is-deleted" : "", entry.entryNumber === state.currentEntryNumber ? "is-current" : "", state.selected.has(entry.entryNumber) ? "is-selected" : ""].filter(Boolean).join(" "); return `<button class="${classes}" data-entry-number="${entry.entryNumber}" aria-label="Entry ${entry.entryNumber}${entry.deleted ? ", deleted" : ""}${patternLabel ? `, pattern ${patternLabel}` : ""}" aria-pressed="${state.selectionMode ? state.selected.has(entry.entryNumber) : "false"}"><span><i>Entry</i> ${entry.entryNumber}</span><span class="question-number__markers">${patternIndex >= 0 ? `<i class="navigator-pattern navigator-pattern--${patternIndex + 1}" title="${patternLabel}" aria-hidden="true"></i>` : ""}${entry.errorCode ? `<b>${entry.errorCode}</b>` : ""}</span></button>`; }).join("") || `<p class="muted">No ${state.filter} entries.</p>`; el.rangeTabs.querySelectorAll("[data-entry-filter]").forEach((b) => b.classList.toggle("is-active", b.dataset.entryFilter === state.filter)); const bar = $("mobileSelectionBar"); if (bar) { bar.hidden = !state.selectionMode; $("mobileSelectionCount").textContent = `${state.selected.size} selected`; $("selectEntriesBtn").setAttribute("aria-pressed", String(state.selectionMode)); $("selectEntriesBtn").textContent = state.selectionMode ? "Done" : "Select"; } }
   function renderProgress() { const count = counts(state.currentForm); el.progress.textContent = `${count.logged} entr${count.logged === 1 ? "y" : "ies"}`; const expected = state.currentForm.expectedScreenshotCount || state.currentForm.originalFormLength || Math.max(count.logged, 1); el.progressBar.style.width = `${Math.min(100, count.logged * 100 / expected)}%`; el.topTotal.textContent = String(activeEntries().length); $("finishFormBtn").textContent = state.currentForm.finished ? "Reopen / append" : "Finish Form"; if ($("touchFinishFormBtn")) $("touchFinishFormBtn").textContent = state.currentForm.finished ? "Reopen / append" : "Finish Form"; }
-  function renderLogger() { const entry = currentEntry(); if (!entry) return; el.formName.textContent = state.currentForm.name; el.formSubject.textContent = [state.currentForm.examType, state.currentForm.subject].filter(Boolean).join(" · ") || "Ordered review log"; el.topNumber.textContent = `Entry ${entry.entryNumber}`; el.note.value = entry.reasoningNote || ""; const pattern = RULE_PATTERNS.find(([id]) => id === entry.pattern); el.note.placeholder = pattern ? pattern[5] : "Record only what the screenshot cannot show."; renderChoices(); renderNoteTag(entry); renderNavigator(); renderProgress(); syncTouchSummaries(entry); syncTouchLayout(); autoExpandNote(); const active = activeEntries(); const index = active.findIndex((e) => e.entryNumber === entry.entryNumber); const atEnd = index >= 0 && index === active.length - 1; $("topPrevBtn").disabled = index <= 0; $("bottomPrevBtn").disabled = index <= 0; $("topNextBtn").disabled = index < 0; $("topNextBtn").innerHTML = `<span aria-hidden="true">${atEnd ? "＋" : "›"}</span>`; $("topNextBtn").classList.toggle("is-new-entry", atEnd); $("topNextBtn").title = atEnd ? "New entry (])" : "Next entry (])"; $("topPrevBtn").title = "Previous entry ([)"; $("topNextBtn").setAttribute("aria-label", atEnd ? "Create new entry" : "Next entry"); $("clearQuestionBtn").textContent = entry.deleted ? "Restore Entry" : "Delete Entry"; $("clearQuestionBtn").title = entry.deleted ? "Restore current entry" : "Delete current entry"; $("permanentDeleteEntryBtn").hidden = !entry.deleted; setSaveState("Saved"); }
+  function renderLogger() { const entry = currentEntry(); if (!entry) return; el.formName.textContent = state.currentForm.name; el.formSubject.textContent = [state.currentForm.examType, state.currentForm.subject].filter(Boolean).join(" · ") || "Ordered review log"; el.topNumber.textContent = `Entry ${entry.entryNumber}`; el.note.value = entry.reasoningNote || ""; renderExamItem(entry); const pattern = RULE_PATTERNS.find(([id]) => id === entry.pattern); el.note.placeholder = pattern ? pattern[5] : "Record only what the screenshot cannot show."; renderChoices(); renderNoteTag(entry); renderNavigator(); renderProgress(); syncTouchSummaries(entry); syncTouchLayout(); autoExpandNote(); const active = activeEntries(); const index = active.findIndex((e) => e.entryNumber === entry.entryNumber); const atEnd = index >= 0 && index === active.length - 1; $("topPrevBtn").disabled = index <= 0; $("bottomPrevBtn").disabled = index <= 0; $("topNextBtn").disabled = index < 0; $("topNextBtn").innerHTML = `<span aria-hidden="true">${atEnd ? "＋" : "›"}</span>`; $("topNextBtn").classList.toggle("is-new-entry", atEnd); $("topNextBtn").title = atEnd ? "New entry (])" : "Next entry (])"; $("topPrevBtn").title = "Previous entry ([)"; $("topNextBtn").setAttribute("aria-label", atEnd ? "Create new entry" : "Next entry"); $("clearQuestionBtn").textContent = entry.deleted ? "Restore Entry" : "Delete Entry"; $("clearQuestionBtn").title = entry.deleted ? "Restore current entry" : "Delete current entry"; $("permanentDeleteEntryBtn").hidden = !entry.deleted; setSaveState("Saved"); }
+  function renderExamItem(entry = currentEntry()) {
+    if (!entry || (document.activeElement === el.examItem && el.examItem.dataset.entry === String(entry.entryNumber))) return;
+    el.examItem.value = entry.examItem || ""; el.examItem.dataset.entry = String(entry.entryNumber); el.examItem.disabled = Boolean(entry.deleted); $("examItemPasteBtn").disabled = Boolean(entry.deleted); setExamItemMessage("");
+  }
+  function setExamItemMessage(text) { $("examItemMessage").textContent = text; $("examItemField").classList.toggle("is-invalid", Boolean(text)); el.examItem.setAttribute("aria-invalid", String(Boolean(text))); }
+  // Blank clears; a valid value is normalized (3.1 -> 3.01); anything else keeps the saved value and shows a gentle hint.
+  function commitExamItem(raw, { finalize = false } = {}) {
+    const entry = currentEntry(); if (!entry || entry.deleted) return;
+    const value = window.ThunderShadowReasoning.normalizeExamItem(raw);
+    if (value === null) { if (finalize) setExamItemMessage("Use block.item, like 3.12"); return; }
+    setExamItemMessage("");
+    if (finalize) el.examItem.value = value;
+    if (value !== (entry.examItem || "")) updateEntry((item) => { item.examItem = value; });
+  }
+  async function pasteExamItem() {
+    el.examItem.focus({ preventScroll: true });
+    try {
+      if (!navigator.clipboard?.readText) throw new Error("unsupported");
+      const text = await navigator.clipboard.readText();
+      el.examItem.value = String(text || "").trim().slice(0, 12); commitExamItem(el.examItem.value, { finalize: true });
+    } catch { el.examItem.select(); showToast("Clipboard unavailable — long-press the box to paste"); }
+  }
   function autoExpandNote() { el.note.style.height = "auto"; const minimum = isPhoneTouch() ? 112 : state.uiMode === "touch" ? 132 : 132; const cap = isPhoneTouch() ? 220 : 300; const height = Math.max(minimum, Math.min(el.note.scrollHeight, cap)); el.note.style.height = `${height}px`; el.note.style.overflowY = el.note.scrollHeight > cap ? "auto" : "hidden"; }
   function persistCurrentDraft() { const entry = currentEntry(); if (entry && state.currentForm) window.ThunderShadowSync.saveDraft({ type: "entry", formId: state.currentForm.id, entryNumber: entry.entryNumber }, { ...entry }); }
   function updateEntry(mutator) { const entry = currentEntry(); if (!entry || entry.deleted) return; mutator(entry); entry.updatedAt = new Date().toISOString(); persistCurrentDraft(); renderChoiceState(entry); renderNavigatorEntry(entry.entryNumber); renderProgress(); saveEntry(); }
@@ -581,6 +603,10 @@
     $("patternGuideDialog").addEventListener("click", (event) => { if (event.target === event.currentTarget) closePatternGuide(); });
     $("patternGuideDialog").addEventListener("close", () => { const target = state.patternGuideReturnFocus || $("patternGuideBtn"); state.patternGuideReturnFocus = null; target?.focus(); });
     $("noteKindBtn").addEventListener("click", () => { updateEntry((entry) => { entry.noteKind = entry.noteKind === "reasoning" ? "clinical" : "reasoning"; }); el.note.focus({ preventScroll: true }); });
+    el.examItem.addEventListener("input", () => commitExamItem(el.examItem.value));
+    el.examItem.addEventListener("blur", () => commitExamItem(el.examItem.value, { finalize: true }));
+    el.examItem.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); el.examItem.blur(); } });
+    $("examItemPasteBtn").addEventListener("click", pasteExamItem);
     el.note.addEventListener("input", () => { const entry = currentEntry(); if (!entry) return; entry.reasoningNote = el.note.value; entry.manualRule = el.note.value; entry.updatedAt = new Date().toISOString(); persistCurrentDraft(); autoExpandNote(); saveEntry(); });
     el.rangeTabs.addEventListener("click", (event) => { const b = event.target.closest("[data-entry-filter]"); if (b) { state.filter = b.dataset.entryFilter; renderNavigator(); } });
     el.questionGrid.addEventListener("click", (event) => { const b = event.target.closest("[data-entry-number]"); if (!b) return; const number = Number(b.dataset.entryNumber); if (state.selectionMode) { state.selected.has(number) ? state.selected.delete(number) : state.selected.add(number); state.anchor = number; renderNavigator(); } else if (event.shiftKey || event.metaKey || event.ctrlKey) handleSelection(number, event); else { state.selected.clear(); state.anchor = number; setEntryRailExpanded(false); changeEntry(number); } });

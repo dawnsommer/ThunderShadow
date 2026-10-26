@@ -75,11 +75,21 @@ function canonicalSpeedFlags(values, pattern = "") {
 function canonicalNoteKind(value, pattern = "") {
   return ["clinical", "reasoning"].includes(value) ? value : (canonicalPattern(pattern) ? "reasoning" : "clinical");
 }
+// Simulator item reference "block.item" (e.g. 3.12). Returns "" for blank, null when invalid.
+function normalizeExamItem(value) {
+  const raw = String(value ?? "").replace(/[\u200B-\u200D\uFEFF]/g, "").trim().replace(/[,:·]/g, ".");
+  if (!raw) return "";
+  const match = raw.match(/^(\d{1,2})\s*\.\s*(\d{1,2})$/);
+  if (!match) return null;
+  const block = Number(match[1]), item = Number(match[2]);
+  return block >= 1 && item >= 1 ? `${block}.${String(item).padStart(2, "0")}` : null;
+}
 function noteIdFor(formId, entryNumber) { return `${formId}:entry-${entryNumber}`; }
 
 window.ThunderShadowReasoning = {
   canonicalNoteKind,
   noteIdFor,
+  normalizeExamItem,
   LEGACY_BLANK_PATTERNS,
   LEGACY_PATTERN_MAP,
   LEGACY_PATTERN_TO_SPEED,
