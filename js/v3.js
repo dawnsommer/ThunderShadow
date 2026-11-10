@@ -15,6 +15,8 @@
   state.selectionAnchor = null;
   state.bulkBusy = false;
   state.selectedReview = null;
+  state.analysisScope = "all";
+  state.timelineMode = "split";
   try {
     const saved = JSON.parse(sessionStorage.getItem("thundershadow:selected-review") || "null");
     if (Array.isArray(saved?.ids) && saved.ids.every((id) => typeof id === "string")) state.selectedReview = { ids: [...new Set(saved.ids)], reviewed: Math.max(0, Number(saved.reviewed) || 0) };
@@ -371,60 +373,266 @@
     return `<table class="v3-table"><thead><tr>${headers.map((header) => `<th>${escapeHTML(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell, index) => `<td data-label="${escapeHTML(headers[index] || "")}">${cell}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   }
 
+  // ---------- Analysis ----------
+  const analysisEl = (id) => document.getElementById(id);
+  const analysisFormsNewestFirst = () => app.getForms().sort((a, b) => b.date.localeCompare(a.date));
+  const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+  const share = (count, total) => total ? `${Math.round(count * 100 / total)}%` : "0%";
+  const patternTone = (item) => Number(String(item.code || "").slice(1)) || 1;
+  const codeBadge = (id) => `<span class="an-code" data-code="${escapeHTML(id)}">${escapeHTML(id)}</span>`;
+  const patternBadge = (item) => `<span class="an-pcode" data-pattern-tone="${patternTone(item)}">${escapeHTML(item.code)}</span>`;
+  const TREND_COPY = { rising: ["↑", "Rising", "is-worse"], improving: ["↓", "Improving", "is-better"], stable: ["→", "Stable", "is-flat"] };
+  function trendChip(item) {
+    const copy = TREND_COPY[item.trend?.direction];
+    if (!copy) return "";
+    const detail = `${item.trend.earlierPerForm} per form in the earlier ${plural(item.trend.earlierForms, "form")}, ${item.trend.recentPerForm} in the latest ${item.trend.recentForms}`;
+    return `<span class="an-trend ${copy[2]}" title="${escapeHTML(detail)}"><i aria-hidden="true">${copy[0]}</i>${copy[1]}</span>`;
+  }
+
   function populateFormFilter() {
-    const select = document.getElementById("analysisForms");
-    if (!select) return;
-    const selected = new Set([...select.selectedOptions].map((option) => option.value));
-    select.innerHTML = app.getForms().sort((a, b) => b.date.localeCompare(a.date)).map((form) => `<option value="${escapeHTML(form.id)}"${selected.has(form.id) ? " selected" : ""}>${escapeHTML(form.date)} · ${escapeHTML(form.name)}</option>`).join("");
+    const box = analysisEl("analysisForms");
+    if (!box) return;
+    const ticked = new Set([...box.querySelectorAll("input:checked")].map((input) => input.value));
+    box.innerHTML = analysisFormsNewestFirst().map((form) => `<label class="an-check"><input type="checkbox" value="${escapeHTML(form.id)}"${ticked.has(form.id) ? " checked" : ""}><span>${escapeHTML(form.name)}</span><small>${escapeHTML(form.date)}</small></label>`).join("") || '<p class="muted">No forms yet.</p>';
+  }
+
+  // One selection scopes every figure on the page and both exports.
+  function analysisFilters() {
+    const forms = analysisFormsNewestFirst(), scope = state.analysisScope;
+    if (scope === "nbme" || scope === "cms") { const ids = forms.filter((form) => form.examGroup === scope).map((form) => form.id); return { formIds: ids, empty: !ids.length, emptyMessage: `No ${scope.toUpperCase()} forms yet.` }; }
+    if (scope === "recent") { const ids = forms.slice(0, 3).map((form) => form.id); return { formIds: ids, empty: !ids.length, emptyMessage: "No forms yet." }; }
+    if (scope === "custom") return { startDate: analysisEl("analysisStartDate").value, endDate: analysisEl("analysisEndDate").value, formIds: [...analysisEl("analysisForms").querySelectorAll("input:checked")].map((input) => input.value) };
+    return { formIds: [] };
   }
 
   function analysisQuery() {
-    const params = new URLSearchParams();
-    const start = document.getElementById("analysisStartDate").value;
-    const end = document.getElementById("analysisEndDate").value;
-    const forms = [...document.getElementById("analysisForms").selectedOptions].map((option) => option.value);
-    if (start) params.set("startDate", start);
-    if (end) params.set("endDate", end);
-    if (forms.length) params.set("formIds", forms.join(","));
+    const filters = analysisFilters(), params = new URLSearchParams();
+    if (filters.startDate) params.set("startDate", filters.startDate);
+    if (filters.endDate) params.set("endDate", filters.endDate);
+    if (filters.formIds?.length) params.set("formIds", filters.formIds.join(","));
     return params.toString();
   }
 
-  function renderAnalysis(data) {
-    const cards = [
-      ["Forms", data.summary.forms], ["Logged entries", data.summary.loggedQuestions],
-      ["Wrong (1–4)", data.summary.wrongAnswers], ["Unstable correct (5–7)", data.summary.unstableCorrect]
+  function renderAnalysisFocus(data) {
+    const seen = data.patterns.filter((item) => item.count > 0);
+    const urgency = (item) => item.level.level * 10 + (item.trend.direction === "rising" ? 2 : item.trend.direction === "improving" ? 0 : 1);
+    const focus = [...seen].sort((a, b) => urgency(b) - urgency(a) || b.count - a.count)[0];
+    const topError = [...data.errors].sort((a, b) => b.count - a.count)[0];
+    const topSpeed = data.speed.find((item) => item.count > 0);
+    const latest = data.recentTrend.at(-1), earlier = data.recentTrend.slice(0, -1);
+    const signals = [];
+    if (topError?.count) signals.push(`<div class="an-signal"><span class="an-signal__label">Most frequent error code</span><strong>${codeBadge(topError.id)}${escapeHTML(topError.label)}</strong><span class="an-signal__meta">${plural(topError.count, "entry", "entries")} · ${topError.percentage}% of coded</span></div>`);
+    if (latest && earlier.length) {
+      const average = earlier.reduce((sum, item) => sum + item.wrong, 0) / earlier.length, delta = latest.wrong - average;
+      const chip = Math.abs(delta) < 0.5 ? `<span class="an-trend is-flat"><i aria-hidden="true">→</i>In line with earlier forms</span>` : `<span class="an-trend ${delta < 0 ? "is-better" : "is-worse"}"><i aria-hidden="true">${delta < 0 ? "↓" : "↑"}</i>${Math.abs(delta).toFixed(1)} ${delta < 0 ? "fewer" : "more"} wrong than the earlier average</span>`;
+      signals.push(`<div class="an-signal"><span class="an-signal__label">Latest form</span><strong>${escapeHTML(latest.formName)}</strong><span class="an-signal__meta">${latest.wrong} wrong · ${latest.unstable} unstable</span>${chip}</div>`);
+    } else if (latest) signals.push(`<div class="an-signal"><span class="an-signal__label">Latest form</span><strong>${escapeHTML(latest.formName)}</strong><span class="an-signal__meta">${latest.wrong} wrong · ${latest.unstable} unstable · add another form to see a trend</span></div>`);
+    signals.push(topSpeed
+      ? `<div class="an-signal"><span class="an-signal__label">Most frequent speed flag</span><strong>${escapeHTML(topSpeed.label)}</strong><span class="an-signal__meta">${plural(topSpeed.count, "entry", "entries")}</span></div>`
+      : `<div class="an-signal"><span class="an-signal__label">Speed flags</span><strong>None logged</strong><span class="an-signal__meta">Mark rushed or overthought entries to see them here.</span></div>`);
+    const main = focus
+      ? `<div class="an-focus__main" data-pattern-tone="${patternTone(focus)}">
+          <p class="an-kicker">Focus next</p>
+          <h2>${patternBadge(focus)}<span>${escapeHTML(focus.label)}</span></h2>
+          <p class="an-focus__meta"><span class="an-level">${escapeHTML(focus.level.label)}</span>${trendChip(focus)}<span>${plural(focus.count, "entry", "entries")} across ${plural(focus.formCount, "form")}</span></p>
+          <p class="an-focus__def">${escapeHTML(focus.definition)}</p>
+          <p class="an-focus__fix"><b>Fix</b>${escapeHTML(focus.correctiveAction)}</p>
+          <button class="button button--primary" type="button" data-analysis-review="${escapeHTML(focus.id)}">Review these cards</button>
+        </div>`
+      : `<div class="an-focus__main">
+          <p class="an-kicker">Focus next</p>
+          <h2><span>No reasoning patterns coded yet</span></h2>
+          <p class="an-focus__def">Pick a reasoning pattern while logging and this panel will name the thinking step that fails most, with its fix.</p>
+        </div>`;
+    analysisEl("analysisFocus").innerHTML = `${main}<div class="an-signals">${signals.join("")}</div>`;
+  }
+
+  function renderAnalysisStats(data) {
+    const s = data.summary;
+    const tiles = [
+      ["Forms", s.forms, ""],
+      ["Logged entries", s.loggedQuestions, s.forms ? `${(s.loggedQuestions / s.forms).toFixed(1)} per form` : ""],
+      ["Wrong (codes 1–4)", s.wrongAnswers, `${share(s.wrongAnswers, s.errorCodedQuestions)} of coded`],
+      ["Unstable correct (5–7)", s.unstableCorrect, `${share(s.unstableCorrect, s.errorCodedQuestions)} of coded`],
+      ["With a reasoning pattern", s.patternCodedEntries, `${share(s.patternCodedEntries, s.loggedQuestions)} of entries`],
+      ["With a study note", s.reasoningNotePresence, `${share(s.reasoningNotePresence, s.loggedQuestions)} of entries`]
     ];
-    document.getElementById("analysisCards").innerHTML = cards.map(([label, value]) => `<div class="stat-card"><span class="stat-card__label">${label}</span><strong>${value}</strong></div>`).join("");
-    document.getElementById("analysisErrors").innerHTML = table(["Code", "Meaning", "Count", "%"], data.errors.map((item) => [item.id, escapeHTML(item.label), item.count, `${item.percentage}%`]));
-    document.getElementById("analysisPatterns").innerHTML = data.patterns.map((item) => {
-      const index = Number(item.code?.slice(1)) || 1;
-      const topError = item.associatedErrorCodes?.[0];
-      const topSpeed = item.associatedSpeedFlags?.[0];
-      const subjects = item.representativeSubjects?.map((subject) => `${subject.label} (${subject.count})`).join(", ") || "—";
-      return `<article class="analytics-pattern-card pattern-analytics--${index}">
-        <header><strong>${escapeHTML(item.code)} — ${escapeHTML(item.label)}</strong><span>${escapeHTML(item.level.label)}</span></header>
-        <p class="analytics-pattern-count"><b>${item.count}</b> entr${item.count === 1 ? "y" : "ies"} across <b>${item.formCount}</b> form${item.formCount === 1 ? "" : "s"} · ${item.percentage}% of pattern-coded entries</p>
-        <dl><div><dt>Most associated Error Code</dt><dd>${topError ? `Code ${escapeHTML(topError.id)} (${topError.count})` : "—"}</dd></div><div><dt>Most associated Speed Flag</dt><dd>${topSpeed ? `${escapeHTML(topSpeed.label)} (${topSpeed.count})` : "—"}</dd></div><div><dt>Subjects/topics</dt><dd>${escapeHTML(subjects)}</dd></div><div><dt>Trend</dt><dd>${escapeHTML(item.trend.direction)} · ${item.trendOverTime?.length || 0} form-date points</dd></div></dl>
-        <p class="analytics-pattern-fix"><b>Fix:</b> ${escapeHTML(item.correctiveAction)}</p>
-      </article>`;
+    analysisEl("analysisCards").innerHTML = tiles.map(([label, value, meta]) => `<div class="an-stat"><span class="an-stat__label">${label}</span><strong>${value}</strong><span class="an-stat__meta">${meta}</span></div>`).join("");
+  }
+
+  function timelineSeries(data) {
+    const codes = state.timelineMode === "codes";
+    const series = codes
+      ? data.errors.map((error) => ({ key: `code-${error.id}`, code: error.id, label: `${error.id} · ${error.label}`, values: error.byForm.map((item) => item.count) }))
+      : [
+        { key: "wrong", label: "Wrong (codes 1–4)", values: data.recentTrend.map((item) => item.wrong) },
+        { key: "unstable", label: "Unstable correct (5–7)", values: data.recentTrend.map((item) => item.unstable) }
+      ];
+    const uncoded = data.recentTrend.map((item) => Math.max(0, item.logged - item.wrong - item.unstable));
+    if (uncoded.some(Boolean)) series.push({ key: "none", label: "No error code", values: uncoded });
+    return series;
+  }
+
+  function renderAnalysisTimeline(data) {
+    const host = analysisEl("analysisTimeline"), forms = data.recentTrend, series = timelineSeries(data), codes = state.timelineMode === "codes";
+    const peak = Math.max(1, ...forms.map((item) => item.logged));
+    const step = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find((size) => peak / size <= 4) || 1000, top = Math.ceil(peak / step) * step, plotHeight = 168;
+    const ticks = []; for (let tick = 0; tick <= top; tick += step) ticks.push(tick);
+    state.timeline = { forms, series };
+    const swatch = (item) => `<i class="an-swatch" ${item.code ? `data-code="${item.code}"` : `data-series="${item.key}"`}></i>`;
+    const columns = forms.map((form, index) => {
+      const stackHeight = form.logged * plotHeight / top;
+      const segments = series.map((item) => { const value = item.values[index]; if (!value) return ""; const height = value * stackHeight / form.logged; return `<i ${item.code ? `data-code="${item.code}"` : `data-series="${item.key}"`} style="flex-grow:${value}">${item.code && height >= 16 ? item.code : ""}</i>`; }).join("");
+      return `<button type="button" class="an-col" data-index="${index}" aria-label="${escapeHTML(`${form.formName}, ${form.date}: ${series.map((item) => `${item.label} ${item.values[index]}`).join(", ")}`)}">
+        <span class="an-col__bar"><span class="an-col__total">${form.logged}</span><span class="an-col__stack" style="height:${stackHeight.toFixed(1)}px">${segments}</span></span>
+        <span class="an-col__label">${escapeHTML(form.formName)}</span><span class="an-col__date">${escapeHTML(form.date.slice(5))}</span>
+      </button>`;
     }).join("");
-    document.getElementById("analysisSpeed").innerHTML = `<p class="muted speed-burden">Re-read loop: ${data.speedBurden.repeatedReading} · Overthought: ${data.speedBurden.overthought} · Changed answer: ${data.speedBurden.changedAnswer}</p>` + table(["Speed flag", "Count", "Top error", "Top pattern"], data.speed.map((item) => {
-      const topError = Object.entries(item.byErrorCode).sort((a, b) => b[1] - a[1])[0];
-      const topPattern = Object.entries(item.byRulePattern).sort((a, b) => b[1] - a[1])[0];
-      const patternLabel = topPattern ? data.patterns.find((pattern) => pattern.id === topPattern[0])?.label : null;
-      return [escapeHTML(item.label), item.count, topError ? `${topError[0]} (${topError[1]})` : "—", topPattern ? `${escapeHTML(patternLabel || topPattern[0])} (${topPattern[1]})` : "—"];
-    }));
-    document.getElementById("analysisCombinations").innerHTML = data.combinations.length
-      ? data.combinations.map((item) => `<article class="finding-card"><strong>${escapeHTML(item.label)}</strong><span>${item.count} descriptive association${item.count === 1 ? "" : "s"}</span></article>`).join("")
-      : '<div class="frequency-empty">No predefined combinations occurred in this selection.</div>';
-    document.getElementById("analysisTrends").innerHTML = table(["Date", "Form", "Logged", "Wrong", "Unstable correct"], data.recentTrend.map((item) => [escapeHTML(item.date), escapeHTML(item.formName), item.logged, item.wrong, item.unstable]));
+    host.innerHTML = `<div class="an-legend">${series.map((item) => `<span>${swatch(item)}${escapeHTML(item.label)}</span>`).join("")}</div>
+      <div class="an-chart${codes ? " an-chart--codes" : ""}">
+        <div class="an-yaxis" aria-hidden="true">${ticks.map((tick) => `<span style="bottom:${tick * plotHeight / top}px">${tick}</span>`).join("")}</div>
+        <div class="an-plot-scroll" tabindex="-1"><div class="an-plot"><div class="an-gridlines" aria-hidden="true">${ticks.map((tick) => `<i style="bottom:${tick * plotHeight / top}px"></i>`).join("")}</div>${columns}</div></div>
+        <div class="an-tip" role="status" hidden></div>
+      </div>`;
+    const scroller = host.querySelector(".an-plot-scroll"); scroller.scrollLeft = scroller.scrollWidth;
+    const lengths = new Map(app.getForms().map((form) => [form.id, form.length]));
+    analysisEl("analysisTrends").innerHTML = table(["Date", "Form", "Logged", "Wrong", "Unstable correct", "Wrong ÷ form length"], forms.map((item) => [escapeHTML(item.date), escapeHTML(item.formName), item.logged, item.wrong, item.unstable, lengths.get(item.formId) ? `${item.wrong} of ${lengths.get(item.formId)} (${(item.wrong * 100 / lengths.get(item.formId)).toFixed(1)}%)` : "—"]));
+  }
+
+  // One readout per form listing every series; built with textContent because names are user data.
+  function showTimelineTip(column) {
+    const chart = column.closest(".an-chart"), tip = chart?.querySelector(".an-tip"), form = state.timeline?.forms[Number(column.dataset.index)];
+    if (!tip || !form) return;
+    tip.textContent = "";
+    const head = document.createElement("strong"); head.textContent = form.formName;
+    const date = document.createElement("small"); date.textContent = `${form.date} · ${plural(form.logged, "logged entry", "logged entries")}`;
+    tip.append(head, date);
+    state.timeline.series.forEach((item) => {
+      const value = item.values[Number(column.dataset.index)];
+      if (!value && item.key === "none") return;
+      const row = document.createElement("span"); row.className = "an-tip__row";
+      const key = document.createElement("i"); if (item.code) key.dataset.code = item.code; else key.dataset.series = item.key;
+      const label = document.createElement("span"); label.textContent = item.label;
+      const figure = document.createElement("b"); figure.textContent = String(value);
+      row.append(key, label, figure); tip.append(row);
+    });
+    tip.hidden = false;
+    const scroller = chart.querySelector(".an-plot-scroll");
+    // Sit beside the column, never on top of it: right when there is room, otherwise left.
+    const start = scroller.offsetLeft + column.offsetLeft - scroller.scrollLeft, end = start + column.offsetWidth;
+    const left = end + 8 + tip.offsetWidth <= chart.clientWidth ? end + 8 : start - 8 - tip.offsetWidth;
+    tip.style.left = `${Math.max(0, Math.min(chart.clientWidth - tip.offsetWidth, left))}px`;
+    chart.querySelectorAll(".an-col.is-active").forEach((item) => item.classList.remove("is-active"));
+    column.classList.add("is-active");
+  }
+  function hideTimelineTip() {
+    const host = analysisEl("analysisTimeline"), tip = host.querySelector(".an-tip");
+    if (tip) tip.hidden = true;
+    host.querySelectorAll(".an-col.is-active").forEach((item) => item.classList.remove("is-active"));
+  }
+
+  function sparkline(counts, code) {
+    if (counts.length < 2) return "";
+    const peak = Math.max(1, ...counts), width = 64, height = 20;
+    const points = counts.map((count, index) => [2 + index * (width - 4) / (counts.length - 1), height - 3 - count * (height - 6) / peak]);
+    const last = points.at(-1);
+    return `<svg class="an-spark" data-code="${code}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHTML(`Per form, oldest to newest: ${counts.join(", ")}`)}"><title>${escapeHTML(`Per form, oldest to newest: ${counts.join(", ")}`)}</title><polyline points="${points.map((point) => point.map((value) => value.toFixed(1)).join(",")).join(" ")}"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3"/></svg>`;
+  }
+
+  function renderAnalysisErrors(data) {
+    const total = data.summary.errorCodedQuestions, peak = Math.max(1, ...data.errors.map((item) => item.count));
+    const group = (title, ids, count) => `<div class="an-group"><div class="an-group__head"><h3>${title}</h3><span>${count} · ${share(count, total)}</span></div>${data.errors.filter((item) => ids.includes(item.id)).map((item) => `<div class="an-row an-row--code" data-code="${item.id}">${codeBadge(item.id)}<span class="an-row__label">${escapeHTML(item.label)}</span><span class="an-bar"><i style="width:${item.count * 100 / peak}%"></i></span><b>${item.count}</b><span class="an-row__pct">${item.percentage}%</span>${sparkline(item.byForm.map((entry) => entry.count), item.id)}</div>`).join("")}</div>`;
+    analysisEl("analysisErrors").innerHTML = group("Wrong answers", ["1", "2", "3", "4"], data.summary.wrongAnswers) + group("Unstable correct", ["5", "6", "7"], data.summary.unstableCorrect);
+  }
+
+  function renderAnalysisPatterns(data) {
+    const seen = data.patterns.filter((item) => item.count > 0), unseen = data.patterns.filter((item) => !item.count), peak = Math.max(1, ...seen.map((item) => item.count));
+    const chips = (items, render) => items.length ? items.slice(0, 3).map(render).join("") : '<span class="muted">—</span>';
+    analysisEl("analysisPatterns").innerHTML = (seen.map((item) => `<details class="an-pattern" data-pattern-tone="${patternTone(item)}">
+        <summary>${patternBadge(item)}<span class="an-row__label">${escapeHTML(item.label)}</span><span class="an-bar"><i style="width:${item.count * 100 / peak}%"></i></span><b>${item.count}</b><span class="an-row__pct">${item.percentage}%</span>${trendChip(item) || '<span class="an-trend is-none"></span>'}<span class="an-level">${escapeHTML(item.level.label)}</span></summary>
+        <div class="an-pattern__body">
+          <p>${escapeHTML(item.definition)}</p>
+          <p class="an-focus__fix"><b>Fix</b>${escapeHTML(item.correctiveAction)}</p>
+          <dl>
+            <div><dt>Seen with error codes</dt><dd>${chips(item.associatedErrorCodes, (code) => `<span class="an-chip">${codeBadge(code.id)}${escapeHTML(code.label)} <b>${code.count}</b></span>`)}</dd></div>
+            <div><dt>Seen with speed flags</dt><dd>${chips(item.associatedSpeedFlags, (flag) => `<span class="an-chip">${escapeHTML(flag.label)} <b>${flag.count}</b></span>`)}</dd></div>
+            <div><dt>Forms</dt><dd>${item.trendOverTime.map((point) => `<span class="an-chip">${escapeHTML(point.formName)} <b>${point.count}</b></span>`).join("")}</dd></div>
+          </dl>
+          <button class="button button--ghost" type="button" data-analysis-review="${escapeHTML(item.id)}">Review these cards</button>
+        </div>
+      </details>`).join("") || '<p class="an-none">No reasoning patterns coded in this selection.</p>')
+      + (seen.length && unseen.length ? `<p class="an-none">Not observed: ${unseen.map((item) => `${escapeHTML(item.code)} ${escapeHTML(item.label)}`).join(" · ")}</p>` : "");
+  }
+
+  function renderAnalysisMatrix(data) {
+    const patterns = [...data.patterns].sort((a, b) => patternTone(a) - patternTone(b)), codes = data.errors;
+    const peak = Math.max(1, ...patterns.flatMap((item) => Object.values(item.byErrorCode)));
+    if (!data.summary.patternCodedEntries) { analysisEl("analysisMatrix").innerHTML = '<p class="an-none">Appears once entries carry both an error code and a reasoning pattern.</p>'; return; }
+    // Sequential single hue: five steps of the accent, the count printed in every cell.
+    const step = (count) => count ? Math.max(1, Math.ceil(count * 5 / peak)) : 0;
+    analysisEl("analysisMatrix").innerHTML = `<table class="an-matrix"><thead><tr><th scope="col"><span class="visually-hidden">Reasoning pattern</span></th>${codes.map((code) => `<th scope="col" title="${escapeHTML(code.label)}">${codeBadge(code.id)}</th>`).join("")}<th scope="col">All</th></tr></thead><tbody>${patterns.map((item) => `<tr><th scope="row" data-pattern-tone="${patternTone(item)}">${patternBadge(item)}<span>${escapeHTML(item.label)}</span></th>${codes.map((code) => { const count = item.byErrorCode[code.id] || 0; return `<td data-step="${step(count)}" title="${escapeHTML(`${item.label} × ${code.id} ${code.label}: ${plural(count, "entry", "entries")}`)}">${count || '<span aria-hidden="true">·</span><span class="visually-hidden">0</span>'}</td>`; }).join("")}<td class="an-matrix__total">${item.count}</td></tr>`).join("")}</tbody></table>
+      <p class="an-scale" aria-hidden="true"><span>Fewer</span>${[1, 2, 3, 4, 5].map((level) => `<i data-step="${level}"></i>`).join("")}<span>More</span></p>`;
+  }
+
+  function renderAnalysisSpeed(data) {
+    const seen = data.speed.filter((item) => item.count > 0), unseen = data.speed.filter((item) => !item.count), peak = Math.max(1, ...seen.map((item) => item.count));
+    const top = (counts) => Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    analysisEl("analysisSpeed").innerHTML = (seen.map((item) => {
+      const error = top(item.byErrorCode), pattern = top(item.byRulePattern), patternItem = pattern ? data.patterns.find((entry) => entry.id === pattern[0]) : null;
+      return `<div class="an-row an-row--speed"><span class="an-row__label">${escapeHTML(item.label)}</span><span class="an-bar an-bar--neutral"><i style="width:${item.count * 100 / peak}%"></i></span><b>${item.count}</b><span class="an-row__with">${error ? `<span class="an-chip">${codeBadge(error[0])}<b>${error[1]}</b></span>` : ""}${patternItem ? `<span class="an-chip">${patternBadge(patternItem)}${escapeHTML(patternItem.label)} <b>${pattern[1]}</b></span>` : ""}</span></div>`;
+    }).join("") || '<p class="an-none">No speed flags marked in this selection.</p>')
+      + (seen.length ? '<p class="an-hint">Chips show the error code and pattern each flag appears with most.</p>' : "")
+      + (seen.length && unseen.length ? `<p class="an-none">Not marked: ${unseen.map((item) => escapeHTML(item.label)).join(" · ")}</p>` : "");
+  }
+
+  function renderAnalysisCombinations(data) {
+    analysisEl("analysisCombinations").innerHTML = data.combinations.length
+      ? data.combinations.map((item) => `<details class="an-combo"><summary>${codeBadge(item.code)}<span class="an-row__label">${escapeHTML(item.label)}</span><b>${item.count}</b></summary><div class="an-combo__list">${item.occurrences.map((entry) => `<button class="an-jump" type="button" data-analysis-jump="${escapeHTML(entry.formId)}" data-entry="${Number(entry.entryNumber)}">${escapeHTML(entry.formName)} · Entry ${Number(entry.entryNumber)}</button>`).join("")}</div></details>`).join("")
+      : '<p class="an-none">None of the tracked pairings occurred in this selection.</p>';
+  }
+
+  function renderAnalysis(data, filters = {}) {
+    const empty = Boolean(filters.empty) || !data || !data.summary.loggedQuestions;
+    analysisEl("analysisEmpty").hidden = !empty;
+    analysisEl("analysisBody").hidden = empty;
+    analysisEl("exportAnalyticsBtn").disabled = analysisEl("exportChatgptBtn").disabled = Boolean(filters.empty);
+    if (empty) {
+      analysisEl("analysisEmptyMessage").textContent = filters.emptyMessage || (app.getForms().length ? "No logged entries in this selection. Widen the selection or log entries in these forms." : "Log entries in a form and they will be summarised here.");
+      analysisEl("analysisScopeNote").textContent = "";
+      return;
+    }
+    const dates = data.recentTrend.map((item) => item.date);
+    analysisEl("analysisScopeNote").textContent = `${plural(data.summary.forms, "form")} · ${dates[0] === dates.at(-1) ? dates[0] : `${dates[0]} to ${dates.at(-1)}`} · ${plural(data.summary.loggedQuestions, "logged entry", "logged entries")}`;
+    renderAnalysisFocus(data); renderAnalysisStats(data); renderAnalysisTimeline(data); renderAnalysisErrors(data);
+    renderAnalysisPatterns(data); renderAnalysisMatrix(data); renderAnalysisSpeed(data); renderAnalysisCombinations(data);
   }
 
   async function loadAnalysis() {
     populateFormFilter();
-    const query = analysisQuery();
-    state.analytics = await app.apiRequest(`/api/analytics${query ? `?${query}` : ""}`);
-    renderAnalysis(state.analytics);
+    document.querySelectorAll("[data-analysis-scope]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.analysisScope === state.analysisScope)));
+    const custom = state.analysisScope === "custom";
+    analysisEl("analysisCustom").hidden = !custom;
+    document.querySelector('[data-analysis-scope="custom"]').setAttribute("aria-expanded", String(custom));
+    const filters = analysisFilters(), body = analysisEl("analysisBody");
+    if (filters.empty) { state.analytics = null; renderAnalysis(null, filters); return; }
+    // Hold the previous render while the new slice loads: no skeleton, no layout jump.
+    body.classList.add("is-loading");
+    try {
+      const query = analysisQuery();
+      state.analytics = await app.apiRequest(`/api/analytics${query ? `?${query}` : ""}`);
+      renderAnalysis(state.analytics, filters);
+    } finally { body.classList.remove("is-loading"); }
+  }
+
+  // Analysis to targeted practice: review every active card that carries one reasoning pattern.
+  async function reviewPattern(patternId) {
+    const { rules } = await app.apiRequest("/api/rules");
+    const ids = rules.filter((rule) => rule.pattern === patternId && rule.status !== "archived").map((rule) => rule.id);
+    if (!ids.length) { app.showToast("No active cards carry this pattern yet. Add a study note to those entries."); return; }
+    state.selectedReview = { ids, reviewed: 0 };
+    state.reviewKind = "all";
+    persistSelectedReview();
+    await show("review");
   }
 
   function reviewCard(rule) {
@@ -847,12 +1055,36 @@
     document.getElementById("ruleSearchInput").value = "";
     selectLibrarySection("suspended");
   });
-  document.getElementById("applyAnalysisFilters").addEventListener("click", () => loadAnalysis().catch((error) => app.showToast(error.message)));
+  const reloadAnalysis = () => loadAnalysis().catch((error) => app.showToast(error.message));
+  document.getElementById("analysisScope").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-analysis-scope]");
+    if (!button) return;
+    state.analysisScope = button.dataset.analysisScope;
+    reloadAnalysis();
+  });
+  document.getElementById("analysisTimelineMode").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-timeline-mode]");
+    if (!button || !state.analytics) return;
+    state.timelineMode = button.dataset.timelineMode;
+    event.currentTarget.querySelectorAll("[data-timeline-mode]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+    renderAnalysisTimeline(state.analytics);
+  });
+  document.getElementById("applyAnalysisFilters").addEventListener("click", reloadAnalysis);
   document.getElementById("clearAnalysisFilters").addEventListener("click", () => {
     document.getElementById("analysisStartDate").value = "";
     document.getElementById("analysisEndDate").value = "";
-    [...document.getElementById("analysisForms").options].forEach((option) => { option.selected = false; });
-    loadAnalysis().catch((error) => app.showToast(error.message));
+    document.getElementById("analysisForms").querySelectorAll("input:checked").forEach((input) => { input.checked = false; });
+    reloadAnalysis();
+  });
+  const timelineHost = document.getElementById("analysisTimeline");
+  timelineHost.addEventListener("pointerover", (event) => { const column = event.target.closest(".an-col"); if (column) showTimelineTip(column); });
+  timelineHost.addEventListener("focusin", (event) => { const column = event.target.closest(".an-col"); if (column) showTimelineTip(column); });
+  timelineHost.addEventListener("pointerleave", hideTimelineTip);
+  timelineHost.addEventListener("focusout", hideTimelineTip);
+  document.getElementById("analysisBody").addEventListener("click", (event) => {
+    const review = event.target.closest("[data-analysis-review]"), jump = event.target.closest("[data-analysis-jump]");
+    if (review) reviewPattern(review.dataset.analysisReview).catch((error) => app.showToast(error.message));
+    if (jump) app.openFormQuestion(jump.dataset.analysisJump, Number(jump.dataset.entry)).then(() => hide()).catch((error) => app.showToast(error.message));
   });
 
   document.getElementById("exportRulesBtn").addEventListener("click", () => download("/api/export/active-rules.tsv", "ThunderShadow_Active_Rules.tsv"));

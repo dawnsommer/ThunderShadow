@@ -1,37 +1,37 @@
 (() => {
   "use strict";
   // BEGIN GENERATED RELEASE (node tools/release.mjs)
-  const VERSION = 47;
-  const APP_VERSION = "22.0.4-deploy-refresh";
+  const VERSION = 48;
+  const APP_VERSION = "22.0.5-deploy-refresh";
   const PREFIX = "thundershadow-github-shell-";
   const SHELL = [
     "./",
     "./index.html",
     "./privacy.html",
-    "./assets/icon-180.png?v=47",
-    "./assets/icon-192.png?v=47",
-    "./assets/icon-512.png?v=47",
-    "./assets/icon.svg?v=47",
-    "./assets/lightning.svg?v=47",
-    "./assets/rain-dark.svg?v=47",
-    "./assets/rain-light.svg?v=47",
-    "./css/redesign.css?v=47",
-    "./css/storm.css?v=47",
-    "./css/styles.css?v=47",
-    "./js/analytics.js?v=47",
-    "./js/app.js?v=47",
-    "./js/browser-api.js?v=47",
-    "./js/cloud-sync.js?v=47",
-    "./js/config.js?v=47",
-    "./js/reasoning.js?v=47",
-    "./js/shell-menu.js?v=47",
-    "./js/sync.js?v=47",
-    "./js/theme-init.js?v=47",
-    "./js/updates.js?v=47",
-    "./js/uuid.js?v=47",
-    "./js/v3.js?v=47",
-    "./manifest.json?v=47",
-    "./manifest.webmanifest?v=47",
+    "./assets/icon-180.png?v=48",
+    "./assets/icon-192.png?v=48",
+    "./assets/icon-512.png?v=48",
+    "./assets/icon.svg?v=48",
+    "./assets/lightning.svg?v=48",
+    "./assets/rain-dark.svg?v=48",
+    "./assets/rain-light.svg?v=48",
+    "./css/redesign.css?v=48",
+    "./css/storm.css?v=48",
+    "./css/styles.css?v=48",
+    "./js/analytics.js?v=48",
+    "./js/app.js?v=48",
+    "./js/browser-api.js?v=48",
+    "./js/cloud-sync.js?v=48",
+    "./js/config.js?v=48",
+    "./js/reasoning.js?v=48",
+    "./js/shell-menu.js?v=48",
+    "./js/sync.js?v=48",
+    "./js/theme-init.js?v=48",
+    "./js/updates.js?v=48",
+    "./js/uuid.js?v=48",
+    "./js/v3.js?v=48",
+    "./manifest.json?v=48",
+    "./manifest.webmanifest?v=48",
     "./VERSION",
     "./release.json"
   ];

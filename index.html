@@ -9,17 +9,17 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ThunderShadow">
   <meta name="application-name" content="ThunderShadow">
-  <meta name="thundershadow-build" content="47">
+  <meta name="thundershadow-build" content="48">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=47"></script>
-  <script src="js/uuid.js?v=47"></script>
-  <link rel="icon" href="assets/icon.svg?v=47" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/icon-180.png?v=47">
-  <link rel="manifest" href="manifest.json?v=47">
-  <link rel="preload" href="css/styles.css?v=47" as="style">
-  <link rel="stylesheet" href="css/redesign.css?v=47">
-  <link rel="stylesheet" href="css/storm.css?v=47">
+  <script src="js/theme-init.js?v=48"></script>
+  <script src="js/uuid.js?v=48"></script>
+  <link rel="icon" href="assets/icon.svg?v=48" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png?v=48">
+  <link rel="manifest" href="manifest.json?v=48">
+  <link rel="preload" href="css/styles.css?v=48" as="style">
+  <link rel="stylesheet" href="css/redesign.css?v=48">
+  <link rel="stylesheet" href="css/storm.css?v=48">
 </head>
 <body>
   <div class="storm-scene" aria-hidden="true">
@@ -399,27 +399,68 @@
         </div>
       </section>
 
-      <section id="analysisView" class="view v3-view" aria-label="Longitudinal analysis" hidden>
-        <div class="v3-scroll">
-          <div class="v3-heading">
-            <div><p class="eyebrow">Version 3 analysis</p><h1>Longitudinal patterns</h1><p>Counts and descriptive associations derived from browser-local logs.</p></div>
-            <div class="v3-heading__actions"><button id="exportAnalyticsBtn" class="button button--ghost" type="button">Analytics JSON</button><button id="exportChatgptBtn" class="button button--primary" type="button">ChatGPT package</button></div>
-          </div>
-          <section class="panel v3-panel analytics-filters">
-            <label class="field"><span>From</span><input id="analysisStartDate" type="date"></label>
-            <label class="field"><span>Through</span><input id="analysisEndDate" type="date"></label>
-            <label class="field field--wide"><span>Forms</span><select id="analysisForms" multiple aria-label="Filter forms"></select></label>
-            <button id="applyAnalysisFilters" class="button button--primary" type="button">Apply filters</button>
-            <button id="clearAnalysisFilters" class="button button--ghost" type="button">Clear</button>
+      <section id="analysisView" class="view v3-view" aria-label="Analysis" hidden>
+        <div class="v3-scroll an">
+          <header class="an-head">
+            <h1>Analysis</h1>
+            <div id="analysisScope" class="segmented-control an-scope" role="group" aria-label="Forms included">
+              <button type="button" data-analysis-scope="all" aria-pressed="true">All forms</button>
+              <button type="button" data-analysis-scope="nbme" aria-pressed="false">NBME</button>
+              <button type="button" data-analysis-scope="cms" aria-pressed="false">CMS</button>
+              <button type="button" data-analysis-scope="recent" aria-pressed="false">Last 3</button>
+              <button type="button" data-analysis-scope="custom" aria-pressed="false" aria-controls="analysisCustom" aria-expanded="false">Custom</button>
+            </div>
+            <div class="an-head__actions"><button id="exportAnalyticsBtn" class="button button--ghost" type="button">Analytics JSON</button><button id="exportChatgptBtn" class="button button--ghost" type="button">ChatGPT package</button></div>
+          </header>
+          <section id="analysisCustom" class="panel an-custom" aria-label="Custom selection" hidden>
+            <div class="an-custom__dates">
+              <label class="field"><span>From</span><input id="analysisStartDate" type="date"></label>
+              <label class="field"><span>Through</span><input id="analysisEndDate" type="date"></label>
+            </div>
+            <fieldset class="an-custom__forms"><legend>Forms <small>(none ticked = every form in the date range)</small></legend><div id="analysisForms" class="an-checks"></div></fieldset>
+            <div class="an-custom__actions"><button id="applyAnalysisFilters" class="button button--primary" type="button">Apply</button><button id="clearAnalysisFilters" class="button button--ghost" type="button">Clear</button></div>
           </section>
-          <div id="analysisCards" class="v3-stat-grid"></div>
-          <div class="v3-grid v3-grid--two">
-            <section class="panel v3-panel"><h2>Error-code distribution</h2><div id="analysisErrors" class="v3-table-wrap"></div></section>
-            <section class="panel v3-panel"><h2>Reasoning patterns</h2><div id="analysisPatterns" class="analytics-pattern-grid"></div></section>
-            <section class="panel v3-panel"><h2>Speed issues</h2><div id="analysisSpeed" class="v3-table-wrap"></div></section>
-            <section class="panel v3-panel"><h2>Combined-pattern findings</h2><div id="analysisCombinations" class="v3-list v3-list--compact"></div></section>
+          <p id="analysisScopeNote" class="an-note" aria-live="polite"></p>
+          <div id="analysisEmpty" class="empty-state an-empty" hidden>
+            <div class="empty-state__icon" aria-hidden="true">ϟ</div>
+            <h2>Nothing to analyse yet</h2>
+            <p id="analysisEmptyMessage">Log entries in a form and they will be summarised here.</p>
           </div>
-          <section class="panel v3-panel"><h2>Recent trend table</h2><div id="analysisTrends" class="v3-table-wrap"></div></section>
+          <div id="analysisBody" class="an-body">
+            <section id="analysisFocus" class="panel an-focus" aria-label="Focus next"></section>
+            <div id="analysisCards" class="an-stats" aria-label="Summary"></div>
+            <section class="panel an-card an-card--timeline" aria-labelledby="analysisTimelineTitle">
+              <header class="an-card__head">
+                <div><h2 id="analysisTimelineTitle">Form by form</h2><p>Logged entries per form, oldest to newest.</p></div>
+                <div id="analysisTimelineMode" class="segmented-control an-mode" role="group" aria-label="Chart breakdown">
+                  <button type="button" data-timeline-mode="split" aria-pressed="true">Wrong / unstable</button>
+                  <button type="button" data-timeline-mode="codes" aria-pressed="false">By error code</button>
+                </div>
+              </header>
+              <div id="analysisTimeline" class="an-timeline"></div>
+              <details class="an-tableview"><summary>View as table</summary><div id="analysisTrends" class="v3-table-wrap"></div></details>
+            </section>
+            <section class="panel an-card an-card--errors" aria-labelledby="analysisErrorsTitle">
+              <header class="an-card__head"><div><h2 id="analysisErrorsTitle">Error codes</h2><p>Share of coded entries, with the trend across forms.</p></div></header>
+              <div id="analysisErrors"></div>
+            </section>
+            <section class="panel an-card an-card--patterns" aria-labelledby="analysisPatternsTitle">
+              <header class="an-card__head"><div><h2 id="analysisPatternsTitle">Reasoning patterns</h2><p>Which thinking step fails most. Open a row for the fix.</p></div></header>
+              <div id="analysisPatterns"></div>
+            </section>
+            <section class="panel an-card an-card--matrix" aria-labelledby="analysisMatrixTitle">
+              <header class="an-card__head"><div><h2 id="analysisMatrixTitle">Pattern × error code</h2><p>How each reasoning pattern shows up in your answers.</p></div></header>
+              <div id="analysisMatrix" class="an-matrix-wrap"></div>
+            </section>
+            <section class="panel an-card an-card--speed" aria-labelledby="analysisSpeedTitle">
+              <header class="an-card__head"><div><h2 id="analysisSpeedTitle">Speed flags</h2><p>Execution habits you marked on entries.</p></div></header>
+              <div id="analysisSpeed"></div>
+            </section>
+            <section class="panel an-card an-card--combos" aria-labelledby="analysisCombinationsTitle">
+              <header class="an-card__head"><div><h2 id="analysisCombinationsTitle">Recurring combinations</h2><p>Known code and pattern pairings. Open one to jump to its entries.</p></div></header>
+              <div id="analysisCombinations"></div>
+            </section>
+          </div>
         </div>
       </section>
 
@@ -754,15 +795,15 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=47" defer></script>
-  <script src="js/reasoning.js?v=47" defer></script>
-  <script src="js/analytics.js?v=47" defer></script>
-  <script src="js/browser-api.js?v=47" defer></script>
-  <script src="js/sync.js?v=47" defer></script>
-  <script src="js/app.js?v=47" defer></script>
-  <script src="js/v3.js?v=47" defer></script>
-  <script src="js/cloud-sync.js?v=47" defer></script>
-  <script src="js/updates.js?v=47" defer></script>
-  <script src="js/shell-menu.js?v=47" defer></script>
+  <script src="js/config.js?v=48" defer></script>
+  <script src="js/reasoning.js?v=48" defer></script>
+  <script src="js/analytics.js?v=48" defer></script>
+  <script src="js/browser-api.js?v=48" defer></script>
+  <script src="js/sync.js?v=48" defer></script>
+  <script src="js/app.js?v=48" defer></script>
+  <script src="js/v3.js?v=48" defer></script>
+  <script src="js/cloud-sync.js?v=48" defer></script>
+  <script src="js/updates.js?v=48" defer></script>
+  <script src="js/shell-menu.js?v=48" defer></script>
 </body>
 </html>
