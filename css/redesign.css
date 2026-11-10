@@ -1,4 +1,4 @@
-@import url("styles.css?v=46") layer(legacy);
+@import url("styles.css?v=47") layer(legacy);
 
 /* ThunderShadow redesign layer.
    The previous stylesheet loads inside the `legacy` cascade layer, so every
@@ -785,3 +785,26 @@ dialog::backdrop, .pattern-guide-dialog::backdrop { background: rgba(2, 6, 12, .
 .speed-button { overflow-wrap: normal; word-break: normal; hyphens: none; }
 html[data-ui-mode="desktop"] .app-shell:is([data-scale="110"], [data-scale="115"], [data-scale="120"]) .speed-button kbd { display: none; }
 html[data-ui-mode="desktop"] .app-shell:is([data-scale="110"], [data-scale="115"], [data-scale="120"]) .speed-button { padding-inline: 9px; font-size: 11px; }
+
+/* Due-card count on the Active Rules tab. */
+.nav-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  vertical-align: 1px;
+}
+.nav-badge[hidden] { display: none; }
+@media (max-width: 700px) {
+  html[data-ui-mode="touch"] .nav-badge { min-width: 16px; height: 16px; margin-left: 4px; padding: 0 4px; font-size: 10px; }
+}
+.speed-button span { overflow-wrap: normal; word-break: normal; }

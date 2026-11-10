@@ -62,11 +62,25 @@
     views.settings.querySelector(".v3-scroll").scrollTop = 0;
   }
 
+  // Due-card count on the Active Rules tab. A read-only local query; never blocks navigation.
+  async function refreshDueBadge() {
+    const badge = document.getElementById("reviewNavBadge");
+    if (!badge) return;
+    try {
+      const { due } = await app.apiRequest("/api/rules/review?limit=1");
+      badge.textContent = due > 99 ? "99+" : String(due);
+      badge.hidden = !due;
+      badge.closest("button")?.setAttribute("aria-label", due ? `Active Rules, ${due} due` : "Active Rules");
+    } catch { badge.hidden = true; }
+  }
   async function show(area) {
     await app.flushPendingEntry();
+    refreshDueBadge();
     if (area === "logger") {
+      // From another area the Logger tab returns to the form that was open; pressed again it lists the forms.
+      const alreadyLogging = document.documentElement.dataset.activeView === "logger";
       hide();
-      app.showLibrary();
+      if (alreadyLogging || !(await app.resumeOpenForm())) app.showLibrary();
       return;
     }
     hide();
@@ -510,6 +524,7 @@
       }
       app.showToast(`${labelResponse(response)} · next review ${rule.nextReviewAt}.`);
       await loadReview();
+      refreshDueBadge();
     } finally {
       list.removeAttribute("aria-busy");
       list.querySelectorAll("button").forEach((button) => { button.disabled = false; });
@@ -531,6 +546,7 @@
       }
       app.showToast("Rule suspended. You can resume it from the Rule Library.");
       await loadReview();
+      refreshDueBadge();
     } finally {
       list.removeAttribute("aria-busy");
       list.querySelectorAll("button").forEach((button) => { button.disabled = false; });
@@ -878,5 +894,7 @@
     state.restorePreview = null;
   }));
 
+  // First count once storage has settled after startup.
+  setTimeout(refreshDueBadge, 1500);
   window.ThunderShadowV3 = { hide, show };
 })();

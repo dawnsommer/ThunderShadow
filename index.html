@@ -9,17 +9,17 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ThunderShadow">
   <meta name="application-name" content="ThunderShadow">
-  <meta name="thundershadow-build" content="46">
+  <meta name="thundershadow-build" content="47">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=46"></script>
-  <script src="js/uuid.js?v=46"></script>
-  <link rel="icon" href="assets/icon.svg?v=46" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/icon-180.png?v=46">
-  <link rel="manifest" href="manifest.json?v=46">
-  <link rel="preload" href="css/styles.css?v=46" as="style">
-  <link rel="stylesheet" href="css/redesign.css?v=46">
-  <link rel="stylesheet" href="css/storm.css?v=46">
+  <script src="js/theme-init.js?v=47"></script>
+  <script src="js/uuid.js?v=47"></script>
+  <link rel="icon" href="assets/icon.svg?v=47" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png?v=47">
+  <link rel="manifest" href="manifest.json?v=47">
+  <link rel="preload" href="css/styles.css?v=47" as="style">
+  <link rel="stylesheet" href="css/redesign.css?v=47">
+  <link rel="stylesheet" href="css/storm.css?v=47">
 </head>
 <body>
   <div class="storm-scene" aria-hidden="true">
@@ -104,7 +104,7 @@
       <button type="button" data-area="library">Library</button>
       <button type="button" data-area="logger" class="is-active">Logger</button>
       <button type="button" data-area="analysis">Analysis</button>
-      <button type="button" data-area="review">Active Rules</button>
+      <button type="button" data-area="review">Active Rules<span id="reviewNavBadge" class="nav-badge" aria-hidden="true" hidden></span></button>
       <button type="button" data-area="settings">Settings</button>
     </nav>
 
@@ -333,6 +333,7 @@
                   <kbd>1–7</kbd> code
                   <kbd>⇧1–7</kbd> pattern
                   <kbd>⌥1–6</kbd> speed
+                  <kbd>N</kbd> note
                   <kbd>⌘/Ctrl + Enter</kbd> save & next
                 <kbd>[</kbd><kbd>]</kbd> navigate
               </div>
@@ -753,15 +754,15 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=46" defer></script>
-  <script src="js/reasoning.js?v=46" defer></script>
-  <script src="js/analytics.js?v=46" defer></script>
-  <script src="js/browser-api.js?v=46" defer></script>
-  <script src="js/sync.js?v=46" defer></script>
-  <script src="js/app.js?v=46" defer></script>
-  <script src="js/v3.js?v=46" defer></script>
-  <script src="js/cloud-sync.js?v=46" defer></script>
-  <script src="js/updates.js?v=46" defer></script>
-  <script src="js/shell-menu.js?v=46" defer></script>
+  <script src="js/config.js?v=47" defer></script>
+  <script src="js/reasoning.js?v=47" defer></script>
+  <script src="js/analytics.js?v=47" defer></script>
+  <script src="js/browser-api.js?v=47" defer></script>
+  <script src="js/sync.js?v=47" defer></script>
+  <script src="js/app.js?v=47" defer></script>
+  <script src="js/v3.js?v=47" defer></script>
+  <script src="js/cloud-sync.js?v=47" defer></script>
+  <script src="js/updates.js?v=47" defer></script>
+  <script src="js/shell-menu.js?v=47" defer></script>
 </body>
 </html>

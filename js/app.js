@@ -334,8 +334,10 @@
     return `<div class="form-card__mix" role="img" aria-label="${escapeHTML(`Error codes: ${summary}`)}" title="${escapeHTML(summary)}">${present.map(([id]) => `<i data-code="${id}" style="flex-grow:${tally.get(id)}"></i>`).join("")}</div>`;
   }
   function renderLibrary() {
-    const groups = { nbme: 0, cms: 0, other: 0 };
-    state.forms.forEach((form) => { groups[formExamGroup(form)] += 1; });
+    const groups = { nbme: 0, cms: 0, other: 0 }, matches = { nbme: 0, cms: 0, other: 0 };
+    const query = state.search.toLowerCase();
+    const matchesQuery = (form) => !query || `${form.name} ${form.examType || ""} ${form.subject || ""}`.toLowerCase().includes(query);
+    state.forms.forEach((form) => { const group = formExamGroup(form); groups[group] += 1; if (matchesQuery(form)) matches[group] += 1; });
     if ((!state.formTypeChosen && !groups[state.formType]) || (state.formType === "other" && !groups.other)) {
       state.formType = ["nbme", "cms", "other"].find((type) => groups[type]) || "nbme";
     }
@@ -344,17 +346,17 @@
       tab.hidden = type === "other" && !groups.other;
       tab.setAttribute("aria-selected", String(selected));
       tab.tabIndex = selected ? 0 : -1;
-      tab.querySelector("[data-form-count]").textContent = groups[type];
-      tab.setAttribute("aria-label", `${type === "other" ? "Other" : type.toUpperCase()} forms, ${groups[type]}`);
+      // While searching, each tab counts its matches so results in another category are not missed.
+      tab.querySelector("[data-form-count]").textContent = query ? matches[type] : groups[type];
+      tab.setAttribute("aria-label", `${type === "other" ? "Other" : type.toUpperCase()} forms, ${query ? `${matches[type]} matching` : groups[type]}`);
       if (selected) $("formsBrowserPanel").setAttribute("aria-labelledby", tab.id);
     });
-    const query = state.search.toLowerCase();
-    const forms = state.forms.filter((form) => formExamGroup(form) === state.formType && (!query || `${form.name} ${form.examType || ""} ${form.subject || ""}`.toLowerCase().includes(query))).sort(compareFormDates);
+    const forms = state.forms.filter((form) => formExamGroup(form) === state.formType && matchesQuery(form)).sort(compareFormDates);
     el.emptyLibrary.hidden = forms.length > 0;
     el.formsGrid.hidden = !forms.length;
     const label = state.formType === "other" ? "other" : state.formType.toUpperCase();
     $("emptyLibraryTitle").textContent = query ? "No matching forms" : state.forms.length ? `No ${label} forms yet` : "No forms yet";
-    $("emptyLibraryMessage").textContent = query ? `No ${label} forms match your search. Try another name or clear the search.` : state.formType === "other" ? "Forms without an NBME or CMS label appear here." : `Create a new ${label} form to start a new log.`;
+    $("emptyLibraryMessage").textContent = query ? `No ${label} forms match your search.${["nbme", "cms", "other"].filter((type) => type !== state.formType && matches[type]).map((type) => ` ${type === "other" ? "Other" : type.toUpperCase()} has ${matches[type]}.`).join("") || " Try another name or clear the search."}` : state.formType === "other" ? "Forms without an NBME or CMS label appear here." : `Create a new ${label} form to start a new log.`;
     $("emptyNewFormBtn").hidden = Boolean(query);
     el.formsGrid.innerHTML = forms.map((form) => { const c = counts(form); return `<article class="form-card" data-form-id="${escapeHTML(form.id)}"><div class="form-card__top"><div class="form-card__title"><span class="badge">${escapeHTML(form.examType || form.subject || "Form")}</span><h2 title="${escapeHTML(form.name)}">${escapeHTML(form.name)}</h2><p>${escapeHTML(form.date)} · ${form.originalFormLength ? `${form.originalFormLength} original questions · ` : ""}${c.logged} active entr${c.logged === 1 ? "y" : "ies"} · ${form.finished ? "Finished" : "Open"}</p></div></div>${formCodeMix(form)}<div class="form-card__actions"><button class="form-card__action form-card__action--open" data-action="open">Open</button><button class="form-card__action" data-action="export" title="Form log with ThunderShadowIDs">TSV</button><button class="form-card__action" data-action="anki" title="Anki cards from this form">Anki</button><button class="form-card__action" data-action="edit">Edit</button><button class="form-card__action form-card__action--delete" data-action="delete">Delete</button></div></article>`; }).join("");
     renderFrequencies();
@@ -415,7 +417,7 @@
   async function saveAndNext() { await saveEntry(true); const active = activeEntries(); const index = active.findIndex((e) => e.entryNumber === state.currentEntryNumber); if (index >= 0 && index < active.length - 1) changeEntry(active[index + 1].entryNumber); else await newEntry(); await saveForm(); }
   function changeEntry(number) { if (!state.currentForm.entries.some((e) => e.entryNumber === number)) return; saveEntry(true); state.currentEntryNumber = number; state.currentForm.currentEntry = number; saveForm(); renderLogger(); }
 
-  function renderChoices() { const entry = currentEntry(); el.errorRows.innerHTML = ERROR_CODES.map(([id, label, detail]) => `<button class="option-row option-row--error option-row--error-${id}${entry?.errorCode === id ? " is-selected" : ""}" data-error-code="${id}" title="${escapeHTML(`${label} — ${detail} Shortcut: ${id}.`)}" aria-pressed="${entry?.errorCode === id}"><span class="option-row__index">${id}</span><span class="option-row__text"><strong>${escapeHTML(label)}</strong><small>${escapeHTML(detail)}</small></span><kbd class="shortcut-badge">${id}</kbd><span class="option-row__check" aria-hidden="true">✓</span></button>`).join(""); el.patternRows.innerHTML = RULE_PATTERNS.map(([id, label, detail, code, fix], index) => `<button class="option-row option-row--pattern option-row--pattern-${index + 1}${entry?.pattern === id ? " is-selected" : ""}" data-pattern="${id}" aria-pressed="${entry?.pattern === id}" title="${escapeHTML(`${label} — ${detail} Fix: ${fix} Shortcut: Shift+${index + 1}.`)}"><span class="pattern-dot" aria-hidden="true"></span><span class="option-row__index">${code}</span><span class="option-row__text"><strong>${escapeHTML(label)}</strong></span><kbd class="shortcut-badge">⇧${index + 1}</kbd><span class="option-row__check" aria-hidden="true">✓</span></button>`).join("") + `<button class="option-clear" type="button" data-clear-pattern><span>No pattern / Clear</span><kbd>⇧0</kbd></button>`; el.speedButtons.innerHTML = SPEED_FLAGS.map(([id, label, code], index) => `<button class="speed-button speed-button--tone-${index}${entry?.speedFlags.includes(id) ? " is-selected" : ""}" data-speed-flag="${id}" aria-pressed="${entry?.speedFlags.includes(id)}"><span>${code} ${escapeHTML(label)}</span><kbd>⌥${index + 1}</kbd><span class="selected-mark" aria-hidden="true">✓</span></button>`).join("") + `<button class="option-clear option-clear--speed" type="button" data-clear-speed><span>Clear speed flags</span><kbd>⌥0</kbd></button>`; }
+  function renderChoices() { const entry = currentEntry(); el.errorRows.innerHTML = ERROR_CODES.map(([id, label, detail]) => `<button class="option-row option-row--error option-row--error-${id}${entry?.errorCode === id ? " is-selected" : ""}" data-error-code="${id}" title="${escapeHTML(`${label} — ${detail} Shortcut: ${id}.`)}" aria-pressed="${entry?.errorCode === id}"><span class="option-row__index">${id}</span><span class="option-row__text"><strong>${escapeHTML(label)}</strong><small>${escapeHTML(detail)}</small></span><kbd class="shortcut-badge">${id}</kbd><span class="option-row__check" aria-hidden="true">✓</span></button>`).join(""); el.patternRows.innerHTML = RULE_PATTERNS.map(([id, label, detail, code, fix], index) => `<button class="option-row option-row--pattern option-row--pattern-${index + 1}${entry?.pattern === id ? " is-selected" : ""}" data-pattern="${id}" aria-pressed="${entry?.pattern === id}" title="${escapeHTML(`${label} — ${detail} Fix: ${fix} Shortcut: Shift+${index + 1}.`)}"><span class="pattern-dot" aria-hidden="true"></span><span class="option-row__index">${code}</span><span class="option-row__text"><strong>${escapeHTML(label)}</strong></span><kbd class="shortcut-badge">⇧${index + 1}</kbd><span class="option-row__check" aria-hidden="true">✓</span></button>`).join("") + `<button class="option-clear" type="button" data-clear-pattern><span>No pattern / Clear</span><kbd>⇧0</kbd></button>`; el.speedButtons.innerHTML = SPEED_FLAGS.map(([id, label, code], index) => `<button class="speed-button speed-button--tone-${index}${entry?.speedFlags.includes(id) ? " is-selected" : ""}" data-speed-flag="${id}" aria-pressed="${entry?.speedFlags.includes(id)}"><span>${code} ${escapeHTML(label).replace("/", "/<wbr>")}</span><kbd>⌥${index + 1}</kbd><span class="selected-mark" aria-hidden="true">✓</span></button>`).join("") + `<button class="option-clear option-clear--speed" type="button" data-clear-speed><span>Clear speed flags</span><kbd>⌥0</kbd></button>`; }
   function renderNoteTag(entry = currentEntry()) {
     if (!entry) return;
     const reasoning = entry.noteKind === "reasoning";
@@ -661,9 +663,18 @@
     addEventListener("keydown", (event) => {
       const editable = isEditable(event.target), guide = $("patternGuideDialog");
       if (guide.open) { if (event.key === "Escape") { event.preventDefault(); closePatternGuide(); } return; }
-      if (editable || el.loggerView.hidden || !state.currentForm || el.formDialog.open || el.confirmDialog.open) return;
+      if (el.loggerView.hidden || !state.currentForm || el.formDialog.open || el.confirmDialog.open) return;
+      const saveNextKey = (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.code === "Enter";
+      // The two logger fields keep save-and-next and Escape, so a whole entry can be logged from the keyboard.
+      if (editable && (event.target === el.note || event.target === el.examItem)) {
+        if (saveNextKey) { event.preventDefault(); event.target.blur(); saveAndNext(); }
+        else if (event.key === "Escape") { event.preventDefault(); event.target.blur(); }
+        return;
+      }
+      if (editable) return;
+      if (!event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && event.code === "KeyN" && el.note.offsetParent && !currentEntry()?.deleted) { event.preventDefault(); el.note.focus(); el.note.setSelectionRange(el.note.value.length, el.note.value.length); return; }
       const digitMatch = event.code.match(/^Digit([0-7])$/), digit = digitMatch ? Number(digitMatch[1]) : null;
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.code === "Enter") { event.preventDefault(); saveAndNext(); return; }
+      if (saveNextKey) { event.preventDefault(); saveAndNext(); return; }
       if (event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey && digit !== null && digit <= 6) { event.preventDefault(); if (digit === 0) updateEntry((entry) => { entry.speedFlags = []; }); else updateEntry((entry) => { const value = SPEED_FLAGS[digit - 1][0], set = new Set(entry.speedFlags); set.has(value) ? set.delete(value) : set.add(value); entry.speedFlags = [...set]; }); return; }
       if (event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && digit !== null) { event.preventDefault(); updateEntry((entry) => { entry.pattern = digit === 0 ? "" : RULE_PATTERNS[digit - 1][0]; }); return; }
       if (!event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && digit >= 1 && digit <= 7) { event.preventDefault(); const value = String(digit); updateEntry((entry) => { entry.errorCode = entry.errorCode === value ? "" : value; }); return; }
@@ -686,6 +697,8 @@
 
   async function initialize() { activatePrimaryView("library"); syncVisualViewport(true); applyTheme(localStorage.getItem("thundershadow:theme") || "system"); applyRainEffect(localStorage.getItem(RAIN_EFFECT_KEY) || "on"); applyUiMode(state.uiMode); setZoom(100, false); el.dateInput.value = todayISO(); bindEvents(); renderSyncStatus({ state: "local", cloudState: "signedout" }, "sync"); window.ThunderShadowSync.setFlusher(() => saveEntry(true)); window.ThunderShadowSync.initialize(); try { state.forms = normalizeForms(await apiRequest("/api/forms")); await window.ThunderShadowSync.setCache("forms", state.forms); const settings = await apiRequest("/api/settings"); setZoom(settings.uiScale, false); navigator.storage?.persist?.().catch(() => {}); } catch (error) { state.forms = normalizeForms((await window.ThunderShadowSync.getCache("forms")) || []); showToast(state.forms.length ? "Loaded cached forms; browser storage reported an error." : `Browser storage could not be opened: ${error.message}`); } renderLibrary(); queueMicrotask(refreshSyncStatus);  }
 
-  window.ThunderShadowApp = { apiRequest, rawApiRequest, downloadFromApi, showLibrary, showToast, activateAuxiliaryView, flushPendingEntry, refreshAccess: async () => {}, refreshForms: async () => { state.forms = normalizeForms(await apiRequest("/api/forms")); if (!state.currentForm) renderLibrary(); }, getForms: () => state.forms.map(({ id, name, date }) => ({ id, name, date })), openFormQuestion: async (formId, entryNumber) => { const form = state.forms.find((f) => f.id === formId); if (!form) throw new Error("Source form is no longer available."); await openForm(form); changeEntry(Number(entryNumber)); }, hideCoreViews: () => { hideAllPrimaryViews(); el.loggerTopActions.hidden = true; document.documentElement.dataset.activeView = "none"; syncTouchLayout(); } };
+  // Returns to the form that was open before visiting another area; false when there is none.
+  async function resumeOpenForm() { if (!state.currentForm) return false; try { await openForm(state.currentForm); return true; } catch { return false; } }
+  window.ThunderShadowApp = { apiRequest, rawApiRequest, downloadFromApi, showLibrary, resumeOpenForm, showToast, activateAuxiliaryView, flushPendingEntry, refreshAccess: async () => {}, refreshForms: async () => { state.forms = normalizeForms(await apiRequest("/api/forms")); if (!state.currentForm) renderLibrary(); }, getForms: () => state.forms.map(({ id, name, date }) => ({ id, name, date })), openFormQuestion: async (formId, entryNumber) => { const form = state.forms.find((f) => f.id === formId); if (!form) throw new Error("Source form is no longer available."); await openForm(form); changeEntry(Number(entryNumber)); }, hideCoreViews: () => { hideAllPrimaryViews(); el.loggerTopActions.hidden = true; document.documentElement.dataset.activeView = "none"; syncTouchLayout(); } };
   initialize();
 })();
