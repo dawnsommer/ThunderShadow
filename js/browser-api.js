@@ -1118,6 +1118,160 @@
       } catch (error) { return errorResponse(error); }
     });
   }
+  // ---------- Form log TSV import (inverse of formToTsv) ----------
+  // Preview parses and finds an existing match; commit takes a safety snapshot, writes one form,
+  // lets the normal note→rule reconciliation build cards, and keeps an in-memory undo record.
+  const tsvImportPreviews = new Map();
+  const tsvImportUndo = new Map();
+  const IMPORT_FIELDS = ["errorCode", "pattern", "speedFlags", "reasoningNote", "noteKind", "examItem"];
+  const sameFormName = (a, b) => String(a || "").trim().replace(/\s+/g, " ").toLowerCase() === String(b || "").trim().replace(/\s+/g, " ").toLowerCase();
+  const importFieldsEqual = (a, b) => IMPORT_FIELDS.every((field) => field === "speedFlags" ? [...(a.speedFlags || [])].sort().join("|") === [...(b.speedFlags || [])].sort().join("|") : String(a[field] || "") === String(b[field] || ""));
+  function pruneImportMaps() { const now = Date.now(); for (const map of [tsvImportPreviews, tsvImportUndo]) for (const [key, value] of map) if (value.expiresAt < now) map.delete(key); }
+  function inferExamType(name) { return /\bCMS(?=\b|\d)|clinical\s+mastery/i.test(name || "") ? "CMS" : /\bNBME(?=\b|\d)/i.test(name || "") ? "NBME" : ""; }
+  function importMatches(parsed, forms) {
+    const byId = parsed.form.formId ? forms.find((form) => form.id === parsed.form.formId) : null;
+    const byName = forms.filter((form) => form !== byId && parsed.form.name && sameFormName(form.name, parsed.form.name) && form.date === parsed.form.date);
+    return [...(byId ? [{ form: byId, matchedBy: "id" }] : []), ...byName.map((form) => ({ form, matchedBy: "name-date" }))].map(({ form, matchedBy }) => {
+      const active = form.entries.filter(isLogged);
+      return { id: form.id, name: form.name, date: form.date, examType: form.examType, entryCount: active.length, matchedBy, plan: { merge: planImport("merge", form, parsed.entries).summary, replace: planImport("replace", form, parsed.entries).summary } };
+    });
+  }
+  function importedEntry(base, row, timestamp, number) {
+    return normalizeEntry({ ...base, entryNumber: number, number, errorCode: row.errorCode, pattern: row.pattern, speedFlags: row.speedFlags, reasoningNote: row.reasoningNote, manualRule: row.reasoningNote, noteKind: row.noteKind, examItem: row.examItem, deleted: false, revision: Number(base?.revision || 0) + 1, createdAt: base?.createdAt || timestamp, updatedAt: timestamp }, number);
+  }
+  // Pure planning step shared by preview counts and commit.
+  function planImport(mode, form, rows, timestamp = nowISO()) {
+    const summary = { added: 0, updated: 0, unchanged: 0, removed: 0 };
+    if (mode === "new") {
+      const entries = rows.map((row) => { summary.added += 1; return importedEntry(null, row, timestamp, row.entryNumber); });
+      return { entries, summary, addedNumbers: entries.map((entry) => entry.entryNumber) };
+    }
+    const entries = (form.entries || []).map((entry) => normalizeEntry(entry));
+    const addedNumbers = [];
+    let max = Math.max(Number(form.maxEntryNumber || 0), 0, ...entries.map((entry) => entry.entryNumber));
+    const write = (index, row) => {
+      const existing = entries[index];
+      if (!existing.deleted && importFieldsEqual(existing, row)) { summary.unchanged += 1; return; }
+      entries[index] = importedEntry(existing, row, timestamp, existing.entryNumber); summary.updated += 1;
+    };
+    const append = (row, number) => { entries.push(importedEntry(null, row, timestamp, number)); addedNumbers.push(number); summary.added += 1; };
+    if (mode === "replace") {
+      const incoming = new Set(rows.map((row) => row.entryNumber));
+      for (const row of rows) {
+        const index = entries.findIndex((entry) => entry.entryNumber === row.entryNumber);
+        if (index >= 0) write(index, row); else { append(row, row.entryNumber); max = Math.max(max, row.entryNumber); }
+      }
+      entries.forEach((entry, index) => {
+        if (!incoming.has(entry.entryNumber) && isLogged(entry)) { entries[index] = normalizeEntry({ ...entry, deleted: true, revision: entry.revision + 1, updatedAt: timestamp }); summary.removed += 1; }
+      });
+    } else {
+      // Merge: rows with an exam item match only that item; rows without one match the same entry number when it has no item either.
+      const claimed = new Set();
+      for (const row of rows) {
+        const index = row.examItem
+          ? entries.findIndex((entry, i) => !claimed.has(i) && !entry.deleted && entry.examItem === row.examItem)
+          : entries.findIndex((entry, i) => !claimed.has(i) && !entry.deleted && !entry.examItem && entry.entryNumber === row.entryNumber);
+        if (index >= 0) { claimed.add(index); write(index, row); }
+        else { max += 1; append(row, max); }
+      }
+    }
+    return { entries: entries.sort((a, b) => a.entryNumber - b.entryNumber), summary, addedNumbers };
+  }
+  async function previewTsvImport(body) {
+    const parser = window.ThunderShadowTsvImport;
+    if (!parser?.parse) throw new Error("The TSV importer did not load. Reload the app and try again.");
+    const parsed = parser.parse(String(body.text || ""), { filename: body.filename || "" });
+    if (!parsed.ok) return { ok: false, error: parsed.error };
+    pruneImportMaps();
+    const token = uuid();
+    tsvImportPreviews.set(token, { parsed, expiresAt: Date.now() + 30 * 60_000 });
+    return {
+      ok: true, token, filename: body.filename || "", form: { ...parsed.form, examType: inferExamType(parsed.form.name) },
+      entries: parsed.entries, problems: parsed.problems, skipped: parsed.skipped, rowCount: parsed.rowCount,
+      matches: importMatches(parsed, await allForms()), snapshots: !emergencyStorage
+    };
+  }
+  async function commitTsvImport(body) {
+    pruneImportMaps();
+    const preview = tsvImportPreviews.get(body.token);
+    if (!preview) throw new Error("This import preview expired. Choose the file again.");
+    const mode = ["new", "merge", "replace"].includes(body.mode) ? body.mode : "new";
+    const { parsed } = preview;
+    const timestamp = nowISO();
+    let target = null;
+    if (mode !== "new") {
+      target = await get(STORES.forms, String(body.targetFormId || ""));
+      if (!target) throw new Error("The form to merge into no longer exists.");
+    }
+    const safety = emergencyStorage ? null : await createSnapshot("safety-before-tsv-import");
+    const rulesBefore = new Map((await getAll(STORES.rules)).map((rule) => [rule.id, deepClone(rule)]));
+    let saved;
+    let summary;
+    let addedNumbers;
+    if (mode === "new") {
+      const id = uuid();
+      const plan = planImport("new", null, parsed.entries, timestamp);
+      ({ summary, addedNumbers } = plan);
+      const last = plan.entries.at(-1)?.entryNumber || 1;
+      saved = normalizeForm({
+        id, name: String(body.name ?? parsed.form.name), date: String(body.date || parsed.form.date || timestamp.slice(0, 10)), examType: String(body.examType ?? inferExamType(parsed.form.name)),
+        subject: String(body.subject || ""), originalFormLength: body.originalFormLength ?? null, expectedScreenshotCount: null,
+        entries: plan.entries, maxEntryNumber: last, currentEntry: plan.entries[0]?.entryNumber || 1, finished: false, revision: 1, createdAt: timestamp, updatedAt: timestamp
+      });
+      if (await get(STORES.forms, id)) throw new Error("Generated form id collided; try again.");
+      await put(STORES.forms, saved);
+      await clearTombstone("form", id);
+    } else {
+      const before = normalizeForm(target, target);
+      const plan = planImport(mode, before, parsed.entries, timestamp);
+      ({ summary, addedNumbers } = plan);
+      const length = before.originalFormLength ?? body.originalFormLength ?? null;
+      saved = normalizeForm({ ...before, originalFormLength: length, entries: plan.entries, questions: plan.entries, maxEntryNumber: Math.max(before.maxEntryNumber, ...plan.entries.map((entry) => entry.entryNumber)), revision: before.revision + 1, updatedAt: timestamp }, before);
+      await put(STORES.forms, saved);
+    }
+    for (const n of addedNumbers) await clearTombstone("entry", `${saved.id}:${n}`);
+    await reconcileSavedForm(saved.id, "form.imported", { formId: saved.id, immediate: true });
+    const rulesAfter = await getAll(STORES.rules);
+    const createdRuleIds = rulesAfter.filter((rule) => !rulesBefore.has(rule.id)).map((rule) => rule.id);
+    const changedRules = rulesAfter.filter((rule) => rulesBefore.has(rule.id) && JSON.stringify(rulesBefore.get(rule.id)) !== JSON.stringify(rule)).map((rule) => rulesBefore.get(rule.id));
+    // Only the latest import of a form can be undone; an older record would overwrite this one's changes.
+    for (const [key, value] of tsvImportUndo) if (value.formId === saved.id) tsvImportUndo.delete(key);
+    const undoToken = uuid();
+    tsvImportUndo.set(undoToken, { mode, formId: saved.id, formBefore: target ? deepClone(target) : null, addedNumbers, createdRuleIds, changedRules, expiresAt: Date.now() + 60 * 60_000 });
+    tsvImportPreviews.delete(body.token);
+    return { form: normalizeForm(await get(STORES.forms, saved.id)), mode, summary, cardsCreated: createdRuleIds.length, undoToken, safetyBackup: safety?.filename || null };
+  }
+  async function undoTsvImport(body) {
+    const record = tsvImportUndo.get(body.undoToken);
+    if (!record) throw new Error("This import can no longer be undone here. Restore the “safety-before-tsv-import” snapshot in Settings → Data & backups instead.");
+    tsvImportUndo.delete(body.undoToken);
+    const timestamp = nowISO();
+    for (const id of record.createdRuleIds) {
+      if (await get(STORES.rules, id)) { await del(STORES.rules, id); await markDeleted("rule", id, timestamp); notifyMutation("rule.deleted", { ruleId: id }); }
+    }
+    for (const rule of record.changedRules) { await put(STORES.rules, { ...rule, updatedAt: timestamp }); notifyMutation("rule.updated", { ruleId: rule.id }); }
+    if (record.mode === "new") {
+      await del(STORES.forms, record.formId);
+      await markDeleted("form", record.formId, timestamp);
+      notifyMutation("form.deleted", { formId: record.formId, immediate: true });
+      return { undone: true, formId: record.formId, removedForm: true };
+    }
+    // Write the earlier form back with newer timestamps/revisions so a cloud merge keeps it,
+    // and tombstone entries the import added so another device cannot resurrect them.
+    const current = await get(STORES.forms, record.formId);
+    const currentEntries = new Map((current?.entries || []).map((entry) => [entry.entryNumber, entry]));
+    const restored = normalizeForm({
+      ...record.formBefore,
+      entries: (record.formBefore.entries || []).map((entry) => ({ ...entry, revision: Math.max(Number(entry.revision || 0), Number(currentEntries.get(entry.entryNumber)?.revision || 0)) + 1, updatedAt: timestamp })),
+      revision: Math.max(Number(record.formBefore.revision || 0), Number(current?.revision || 0)) + 1, updatedAt: timestamp
+    }, record.formBefore);
+    await put(STORES.forms, restored);
+    for (const n of record.addedNumbers) await markDeleted("entry", `${record.formId}:${n}`, timestamp);
+    notifyMutation("form.import-undone", { formId: record.formId, immediate: true });
+    notifyMutation("entry.permanent-delete", { formId: record.formId, immediate: true });
+    return { undone: true, formId: record.formId, removedForm: false };
+  }
+
   async function routeRequest(path, options = {}) {
     queueScheduledBackupCheck();
     const url = routePath(path);
@@ -1182,6 +1336,9 @@
       m = match(pathname, /\/api\/forms\/([^/]+)\/export\.tsv$/);
       if (m && method === "GET") { const form = await get(STORES.forms, m[0]); if (!form) return errorResponse(new Error("Form not found."), 404, "NOT_FOUND"); return textResponse(formToTsv((await formsForExport([normalizeForm(form, form)]))[0]), "text/tab-separated-values; charset=utf-8", `${safeFilename(form.name)}_ThunderShadow_Log.tsv`); }
 
+      if (pathname.endsWith("/api/import/form-tsv/preview") && method === "POST") return jsonResponse(await previewTsvImport(await parseBody(options)));
+      if (pathname.endsWith("/api/import/form-tsv/commit") && method === "POST") return jsonResponse(await commitTsvImport(await parseBody(options)), 201);
+      if (pathname.endsWith("/api/import/form-tsv/undo") && method === "POST") return jsonResponse(await undoTsvImport(await parseBody(options)));
       if (pathname.endsWith("/api/backup") && method === "GET") return jsonResponse(await exportPackage());
       if (pathname.endsWith("/api/restore") && method === "POST") {
         const body = await parseBody(options); const payload = typeof body === "string" ? JSON.parse(body) : body; await createSnapshot("safety-before-json-restore"); const result = await replacePackage(payload); notifyMutation("database.restored", { immediate: true }); return jsonResponse(result);

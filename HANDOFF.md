@@ -1,17 +1,30 @@
 # HANDOFF — Import form log TSV
 
-Short working log for the TSV-import feature. Project-wide facts live in `AGENTS.md`.
+Short working log for the TSV-import feature. Project-wide facts live in `AGENTS.md` (see "Form-log TSV import").
 
-- Branch: `claude/fervent-pasteur-oo1wne` (cloud clone at `/home/user/ThunderShadow`). Never push `main`, never deploy, no PR until asked.
-- Hosting: GitHub Pages serves the repo root from `main` (no workflow files, no build). URL `https://dawnsommer.github.io/ThunderShadow/`.
-- Data: browser-only. IndexedDB `ThunderShadowBrowserDB` (`forms` store embeds `entries`; `rules`, `settings`, `backups`, `meta`), localStorage emergency fallback, optional Google Drive sync of the same records. No data files in the repo, so the importer writes through the in-page API in `js/browser-api.js`.
-- Format to invert: `formToTsv` in `js/browser-api.js` (13 columns, `ankiTsvCell` quoting, notes `<br>`, pattern/speed as display labels like `P5 — HINGE`).
-- Step Simulator draft (`/Users/bladelord/.../_draft_shadow_logger/`) is on the user's Mac and not reachable from this cloud session; working from the spec in the request.
+- Repo: `dawnsommer/ThunderShadow`, cloud clone at `/home/user/ThunderShadow`, branch `claude/fervent-pasteur-oo1wne`.
+- Hosting: GitHub Pages serves the repo root from `main` (no workflow, no build). Live: `https://dawnsommer.github.io/ThunderShadow/`. Pushing `main` deploys.
+- Data: browser-only. IndexedDB `ThunderShadowBrowserDB` (`forms` embeds `entries`; `rules`, `settings`, `backups`, `meta`), localStorage emergency fallback, optional Google Drive sync. No data in the repo, so the importer writes through the in-page API (`js/browser-api.js`).
+
+## What exists (release 22.0.7, build 50)
+
+- `js/tsv-import.js`: parser (inverse of `formToTsv`).
+- `js/browser-api.js`: `POST /api/import/form-tsv/preview`, `/commit` (modes `new`/`merge`/`replace`, safety snapshot first), `/undo`.
+- `js/import-ui.js` + `#tsvImportDialog` in `index.html` + section 13 of `css/redesign.css`: Import TSV button, empty-state action, drag-and-drop, preview, Merge/Replace choice, Undo toast.
+- Tests: `test/import.test.mjs` (+ fixture `test/fixtures/step-simulator-sample.tsv`, the user's real Step Simulator export).
+
+## Verify
+
+```bash
+node --test test/updates.test.mjs test/import.test.mjs
+node tools/release.mjs --check
+python3 -m http.server 8765 --bind 127.0.0.1
+```
 
 ## Status
 
-1. [x] Codebase read, design proposed — **waiting for user approval** before editing code.
-2. [ ] Parser + preview/commit/undo API
-3. [ ] UI (library button + dialog)
-4. [ ] Tests (round trip, simulator TSV), local browser check
-5. [ ] AGENTS.md update, commit, push branch
+- [x] Design, parser, API, UI, tests, local browser check (desktop dark/light, 390px Touch).
+- [x] Release metadata regenerated, AGENTS.md/README updated.
+- [x] Committed and pushed to the branch; fast-forwarded `main` to deploy (user asked to deploy).
+- Known limits: tabs inside notes and literal `<br>` text don't round-trip (export limitation). Undo lives in memory for 60 min and covers only the latest import of a form; after that, restore the `safety-before-tsv-import` snapshot in Settings → Data & backups.
+- Not verified: native Safari/iPad, Drive sync of imported forms, the live Pages site after deploy.

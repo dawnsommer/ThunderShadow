@@ -9,17 +9,17 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ThunderShadow">
   <meta name="application-name" content="ThunderShadow">
-  <meta name="thundershadow-build" content="49">
+  <meta name="thundershadow-build" content="50">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=49"></script>
-  <script src="js/uuid.js?v=49"></script>
-  <link rel="icon" href="assets/icon.svg?v=49" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/icon-180.png?v=49">
-  <link rel="manifest" href="manifest.json?v=49">
-  <link rel="preload" href="css/styles.css?v=49" as="style">
-  <link rel="stylesheet" href="css/redesign.css?v=49">
-  <link rel="stylesheet" href="css/storm.css?v=49">
+  <script src="js/theme-init.js?v=50"></script>
+  <script src="js/uuid.js?v=50"></script>
+  <link rel="icon" href="assets/icon.svg?v=50" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png?v=50">
+  <link rel="manifest" href="manifest.json?v=50">
+  <link rel="preload" href="css/styles.css?v=50" as="style">
+  <link rel="stylesheet" href="css/redesign.css?v=50">
+  <link rel="stylesheet" href="css/storm.css?v=50">
 </head>
 <body>
   <div class="storm-scene" aria-hidden="true">
@@ -117,6 +117,10 @@
                 <p class="eyebrow">Logger</p>
                 <h1>Your logged forms</h1>
               </div>
+              <button id="importTsvBtn" class="button button--ghost import-tsv-button" type="button" aria-label="Import TSV" title="Import a form log TSV (ThunderShadow export or Step Simulator)">
+                <span class="import-tsv-button__icon" aria-hidden="true"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v9m0 0-3.5-3.5M10 12l3.5-3.5"/><path d="M3.5 13v2.5a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V13"/></svg></span>
+                <span>Import TSV</span>
+              </button>
               <button id="newFormBtn" class="button button--primary new-form-button" type="button" aria-label="New form">
                 <span class="new-form-button__icon" aria-hidden="true">＋</span>
                 <span><strong>New form</strong><small>Start a new log</small></span>
@@ -139,7 +143,10 @@
                 <div class="empty-state__icon" aria-hidden="true">ϟ</div>
                 <h2 id="emptyLibraryTitle">No forms yet</h2>
                 <p id="emptyLibraryMessage">Create a form and log only the questions worth reviewing.</p>
-                <button id="emptyNewFormBtn" class="button button--primary" type="button">Create first form</button>
+                <div class="empty-state__actions">
+                  <button id="emptyNewFormBtn" class="button button--primary" type="button">Create first form</button>
+                  <button id="emptyImportTsvBtn" class="button button--ghost" type="button">Import a TSV log</button>
+                </div>
               </div>
               <div id="formsGrid" class="forms-grid" aria-live="polite"></div>
             </div>
@@ -675,6 +682,70 @@
     </form>
   </dialog>
 
+  <input id="tsvImportFile" type="file" accept=".tsv,.txt,.csv,text/tab-separated-values,text/plain" hidden>
+  <dialog id="tsvImportDialog" class="dialog tsv-import" aria-labelledby="tsvImportTitle">
+    <div class="dialog__surface tsv-import__surface">
+      <div class="dialog__header">
+        <div>
+          <p class="eyebrow">Import form log</p>
+          <h2 id="tsvImportTitle">Import a TSV log</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="tsvImportDialog" aria-label="Close">×</button>
+      </div>
+      <div class="dialog__body tsv-import__body">
+        <div id="tsvImportDrop" class="tsv-drop" role="button" tabindex="0" aria-describedby="tsvImportDropHint">
+          <span class="tsv-drop__icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6m0 0-2.5-2.5M12 17l2.5-2.5"/></svg></span>
+          <strong>Drop a form log here</strong>
+          <span id="tsvImportDropHint">A ThunderShadow form TSV or a Step Simulator review log. One form per file.</span>
+          <span class="button button--ghost tsv-drop__choose">Choose file</span>
+        </div>
+        <p id="tsvImportError" class="tsv-import__error" role="alert" hidden></p>
+        <div id="tsvImportPreview" class="tsv-preview" hidden>
+          <div class="tsv-file">
+            <span class="tsv-file__name" id="tsvImportFileName"></span>
+            <button id="tsvImportChangeFile" class="tsv-link" type="button">Choose another file</button>
+          </div>
+          <div id="tsvImportStats" class="tsv-stats"></div>
+          <div id="tsvImportMix" class="tsv-mix" role="img"></div>
+          <section id="tsvImportMatch" class="tsv-match" hidden aria-labelledby="tsvImportMatchTitle">
+            <div class="tsv-match__head">
+              <span class="tsv-match__icon" aria-hidden="true">!</span>
+              <div>
+                <h3 id="tsvImportMatchTitle">Already in ThunderShadow</h3>
+                <p id="tsvImportMatchText"></p>
+              </div>
+            </div>
+            <div id="tsvImportModes" class="tsv-modes" role="radiogroup" aria-label="How to import into the existing form"></div>
+          </section>
+          <div id="tsvImportMeta" class="tsv-meta">
+            <label class="field tsv-meta__name"><span>Form name</span><input id="tsvImportName" type="text" maxlength="80" required></label>
+            <label class="field"><span>Date</span><input id="tsvImportDate" type="date" required></label>
+            <label class="field"><span>Exam type <em>optional</em></span><input id="tsvImportExamType" type="text" maxlength="80" placeholder="e.g. NBME, CMS">
+              <span class="quick-fill"><button type="button" data-exam-type="NBME">NBME</button><button type="button" data-exam-type="CMS">CMS</button><button type="button" data-exam-type="">Other</button></span></label>
+            <label class="field"><span>Total questions <em>optional</em></span><input id="tsvImportLength" type="number" min="1" max="1000" inputmode="numeric">
+              <span class="quick-fill"><button type="button" data-import-length="40">40</button><button type="button" data-import-length="50">50</button><button type="button" data-import-length="160">160</button><button type="button" data-import-length="200">200</button></span></label>
+          </div>
+          <details id="tsvImportProblems" class="tsv-problems" hidden>
+            <summary id="tsvImportProblemsSummary"></summary>
+            <ul id="tsvImportProblemList"></ul>
+          </details>
+          <div class="tsv-table-wrap">
+            <table class="tsv-table">
+              <caption class="visually-hidden">Entries in this file</caption>
+              <thead><tr><th scope="col">#</th><th scope="col">Item</th><th scope="col">Code</th><th scope="col">Pattern</th><th scope="col">Speed</th><th scope="col">Note</th></tr></thead>
+              <tbody id="tsvImportRows"></tbody>
+            </table>
+          </div>
+          <p id="tsvImportSafety" class="tsv-safety"></p>
+        </div>
+      </div>
+      <div class="dialog__footer">
+        <button class="button button--ghost" type="button" data-close-dialog="tsvImportDialog">Cancel</button>
+        <button id="tsvImportCommitBtn" class="button button--primary" type="button" disabled>Import &amp; open</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="patternGuideDialog" class="dialog pattern-guide-dialog" aria-labelledby="patternGuideTitle" aria-describedby="patternGuideSubtitle">
     <div class="dialog__surface pattern-guide-surface">
       <header class="pattern-guide-header">
@@ -795,15 +866,17 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=49" defer></script>
-  <script src="js/reasoning.js?v=49" defer></script>
-  <script src="js/analytics.js?v=49" defer></script>
-  <script src="js/browser-api.js?v=49" defer></script>
-  <script src="js/sync.js?v=49" defer></script>
-  <script src="js/app.js?v=49" defer></script>
-  <script src="js/v3.js?v=49" defer></script>
-  <script src="js/cloud-sync.js?v=49" defer></script>
-  <script src="js/updates.js?v=49" defer></script>
-  <script src="js/shell-menu.js?v=49" defer></script>
+  <script src="js/config.js?v=50" defer></script>
+  <script src="js/reasoning.js?v=50" defer></script>
+  <script src="js/analytics.js?v=50" defer></script>
+  <script src="js/tsv-import.js?v=50" defer></script>
+  <script src="js/browser-api.js?v=50" defer></script>
+  <script src="js/sync.js?v=50" defer></script>
+  <script src="js/app.js?v=50" defer></script>
+  <script src="js/v3.js?v=50" defer></script>
+  <script src="js/cloud-sync.js?v=50" defer></script>
+  <script src="js/updates.js?v=50" defer></script>
+  <script src="js/shell-menu.js?v=50" defer></script>
+  <script src="js/import-ui.js?v=50" defer></script>
 </body>
 </html>

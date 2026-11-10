@@ -1,0 +1,4 @@
+ThunderShadowID	Form	Date	Entry_Number	Error_Code	Rule_Pattern	Speed_Flags	Reasoning_Note	Note_Type	Form_ID	Note_ID	Rule_Text	Exam_Item
+	Step1-UWSA1	2026-11-10	1	5	P4 — FRAME	S3 — RE-READ LOOP | S4 — CHANGED ANSWER	Hello	Clinical Pattern				1.01
+	Step1-UWSA1	2026-11-10	2	1	P6 — TIMELINE	S1 — RUSHED	test1	Clinical Pattern				1.02
+	Step1-UWSA1	2026-11-10	3	2	P2 — STABILITY	S5 — SLOW RECALL	Hello broad	Broad Pattern				1.03

@@ -1,4 +1,4 @@
-@import url("styles.css?v=49") layer(legacy);
+@import url("styles.css?v=50") layer(legacy);
 
 /* ThunderShadow redesign layer.
    The previous stylesheet loads inside the `legacy` cascade layer, so every
@@ -1103,3 +1103,113 @@ html[data-theme="light"] { --an-wrong: #cf3346; --an-unstable: #2a6fd0; --an-sco
 .an-dot b.is-below { top: 9px; bottom: auto; }
 .an-col__missing { align-self: center; margin-bottom: 8px; color: var(--muted-2); font-size: 10px; }
 .an-swatch--line { width: 14px; height: 3px; border-radius: 2px; }
+
+/* ---------- 13. Form log TSV import ----------
+   Library "Import TSV" button, the #tsvImportDialog preview and the Undo toast (js/import-ui.js). */
+#libraryView .import-tsv-button { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; min-height: 38px; margin-left: auto; padding: 0 13px 0 11px; border-radius: 10px; font-size: 13px; white-space: nowrap; }
+#libraryView .import-tsv-button + #newFormBtn { margin-left: 0; }
+.import-tsv-button__icon { display: grid; place-items: center; color: var(--accent); }
+.empty-state__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+#libraryView.is-tsv-drop .panel--library-list { outline: 2px dashed var(--accent); outline-offset: -6px; }
+
+.tsv-import { width: min(820px, calc(100vw - 32px)); }
+.tsv-import:not(.is-preview) { width: min(520px, calc(100vw - 32px)); }
+.tsv-import__surface { display: flex; flex-direction: column; max-height: min(88vh, 900px); }
+.tsv-import__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; gap: 14px; }
+.tsv-import .dialog__header h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsv-import .dialog__header > div { min-width: 0; }
+.tsv-import #tsvImportCommitBtn { min-width: 132px; }
+.tsv-import #tsvImportCommitBtn.is-replace { color: #fff; background: var(--danger); }
+
+.tsv-drop { display: grid; justify-items: center; gap: 6px; padding: 30px 18px; border: 1.5px dashed var(--line-strong); border-radius: 14px; color: var(--muted); background: var(--surface-field); text-align: center; cursor: pointer; transition: border-color .12s var(--ease), background-color .12s var(--ease); }
+.tsv-drop:hover, .tsv-drop:focus-visible, .tsv-import.is-dragging .tsv-drop { border-color: var(--accent); background: var(--accent-soft); outline: none; }
+.tsv-drop strong { color: var(--text); font-size: 15px; }
+.tsv-drop > span:not(.tsv-drop__icon):not(.button) { max-width: 34ch; font-size: 12.5px; line-height: 1.45; }
+.tsv-drop__icon { display: grid; place-items: center; width: 50px; height: 50px; margin-bottom: 4px; border-radius: 14px; color: var(--accent); background: var(--accent-soft); }
+.tsv-drop__choose { margin-top: 8px; pointer-events: none; }
+.tsv-import__error { margin: 0; padding: 10px 12px; border-radius: 10px; color: var(--danger); background: var(--danger-soft); font-size: 12.5px; line-height: 1.45; }
+
+.tsv-preview { display: grid; gap: 14px; min-width: 0; }
+.tsv-file { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; color: var(--muted); font-size: 12px; }
+.tsv-file__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsv-link { flex: 0 0 auto; padding: 0; border: 0; color: var(--accent); background: none; font: inherit; font-weight: 600; cursor: pointer; }
+.tsv-link:hover { text-decoration: underline; }
+.tsv-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tsv-stat { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--panel-soft); }
+.tsv-stat strong { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tsv-stat span { color: var(--muted); font-size: 11.5px; }
+.tsv-stat--warn strong { color: var(--warning); }
+.tsv-mix { display: flex; gap: 2px; height: 6px; overflow: hidden; border-radius: 999px; }
+.tsv-mix > span { min-width: 6px; background: var(--tone); }
+
+.tsv-match { display: grid; gap: 12px; padding: 14px; border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--warning) 8%, var(--panel-strong)); }
+.tsv-match__head { display: flex; gap: 10px; align-items: flex-start; }
+.tsv-match__head h3 { margin: 0 0 2px; font-size: 14px; }
+.tsv-match__head p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.tsv-match__icon { display: grid; flex: 0 0 auto; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: var(--bg); background: var(--warning); font-size: 13px; font-weight: 800; }
+.tsv-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tsv-mode { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; border: 1px solid var(--line-strong); border-radius: 12px; color: var(--text); background: var(--surface-field); font: inherit; text-align: left; cursor: pointer; }
+.tsv-mode:hover { background: var(--panel-hover); }
+.tsv-mode:focus-visible { outline: none; box-shadow: var(--ring); }
+.tsv-mode[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.tsv-mode[data-mode="replace"][aria-checked="true"] { border-color: var(--danger); background: var(--danger-soft); }
+.tsv-mode__radio { flex: 0 0 auto; width: 16px; height: 16px; margin-top: 1px; border: 2px solid var(--line-strong); border-radius: 50%; }
+.tsv-mode[aria-checked="true"] .tsv-mode__radio { border: 5px solid var(--accent); }
+.tsv-mode[data-mode="replace"][aria-checked="true"] .tsv-mode__radio { border-color: var(--danger); }
+.tsv-mode__text { display: grid; gap: 3px; min-width: 0; }
+.tsv-mode__text strong { font-size: 13.5px; }
+.tsv-mode__text small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.tsv-mode__text em { color: var(--text); font-size: 12px; font-style: normal; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.tsv-meta { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px 14px; }
+.tsv-meta[hidden] { display: none; }
+.tsv-meta .field { min-width: 0; }
+
+.tsv-problems { border: 1px solid var(--line); border-radius: 12px; background: var(--panel-soft); }
+.tsv-problems summary { padding: 10px 12px; color: var(--warning); font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.tsv-problems ul { display: grid; gap: 6px; max-height: 160px; margin: 0; padding: 0 12px 12px; overflow-y: auto; list-style: none; }
+.tsv-problem { display: flex; gap: 10px; color: var(--text); font-size: 12px; line-height: 1.45; }
+.tsv-problem span { flex: 0 0 auto; min-width: 52px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tsv-problem--skip { color: var(--muted); }
+
+.tsv-table-wrap { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
+.tsv-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tsv-table thead th { position: sticky; z-index: 1; top: 0; padding: 8px 10px; background: var(--panel-strong); text-align: left; text-transform: uppercase; }
+.tsv-table td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+.tsv-table tr.has-problem td { background: color-mix(in srgb, var(--warning) 9%, transparent); }
+.tsv-table tr.has-problem td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+.tsv-table td:nth-child(1), .tsv-table td:nth-child(2) { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tsv-num { color: var(--text); font-weight: 650; }
+.tsv-badge { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 6px; color: var(--tone-ink); background: var(--tone); font-size: 11.5px; font-weight: 750; }
+.tsv-cell-flex { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.tsv-cell-label { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .03em; }
+.tsv-chip { padding: 2px 6px; border-radius: 6px; color: var(--text); background: var(--panel-soft); font-size: 11px; font-weight: 650; }
+.tsv-note-cell { display: grid; gap: 4px; justify-items: start; min-width: 0; }
+.tsv-note-cell .note-tag { padding: 1px 7px; font-size: 10.5px; }
+.tsv-note { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; white-space: pre-line; overflow-wrap: anywhere; line-height: 1.45; }
+.tsv-none { color: var(--muted-2); }
+.tsv-safety { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+.toast--action { display: flex; align-items: center; gap: 12px; max-width: 420px; pointer-events: auto; font-size: 12.5px; line-height: 1.4; }
+.toast--action span { flex: 1 1 auto; min-width: 0; }
+.toast__action { flex: 0 0 auto; min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; color: var(--accent-ink); background: var(--accent); font: inherit; font-weight: 700; cursor: pointer; }
+.toast__action:disabled { opacity: .6; cursor: progress; }
+
+@media (max-width: 640px) {
+  #libraryView .import-tsv-button span:last-child { display: none; }
+  #libraryView .import-tsv-button { width: 44px; min-height: 44px; padding: 0; justify-content: center; }
+  .tsv-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tsv-modes, .tsv-meta { grid-template-columns: minmax(0, 1fr); }
+  .tsv-table-wrap { max-height: none; overflow: visible; border: 0; }
+  .tsv-table thead { display: none; }
+  .tsv-table, .tsv-table tbody { display: grid; gap: 8px; }
+  .tsv-table tr { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .tsv-table td { padding: 0; border: 0; }
+  .tsv-table tr.has-problem { border-color: color-mix(in srgb, var(--warning) 55%, transparent); }
+  .tsv-table tr.has-problem td { background: none; }
+  .tsv-table tr.has-problem td:first-child { box-shadow: none; }
+  .tsv-table td:nth-child(5) { justify-self: end; }
+  .tsv-table td:nth-child(6) { grid-column: 1 / -1; }
+  .tsv-import .dialog__footer .button { flex: 1 1 0; min-height: 44px; }
+}
+html[data-ui-mode="touch"] .tsv-mode, html[data-ui-mode="touch"] .tsv-drop { min-height: 44px; }
