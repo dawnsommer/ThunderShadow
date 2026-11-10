@@ -2,11 +2,11 @@
 
 ThunderShadow is a static, installable, local-first PWA for rapid NBME/CMS error logging, reasoning rules, review, analytics, and exports. It has no build step or application server.
 
-## Redesign draft
+## Redesign (22.0.4)
 
-This branch carries a draft visual redesign in `css/redesign.css`, which loads the previous `css/styles.css` inside a cascade layer and restyles on top of it. Desktop uses a single top bar with the area tabs beside the brand; theme, layout, scale, backup, and restore sit in the “⋯” menu. Surfaces are opaque with no blur, the storm is dimmed behind content, and the seven error-code colours appear as number badges, in the entry rail, in the analysis bars, and as a strip on each form card. Clicking a form card opens it. Touch mode keeps its existing layout with the new colours. Descriptions of header control positions further down this file refer to the previous design.
+The visual redesign lives in `css/redesign.css`, which loads the previous `css/styles.css` inside a cascade layer and restyles on top of it. Desktop uses a single top bar with the area tabs beside the brand; theme, layout, scale, backup, and restore sit in the “⋯” menu. Surfaces are opaque with no blur, the storm is dimmed behind content, and the seven error-code colours appear as number badges, in the entry rail, in the analysis bars, and as a strip on each form card. Clicking a form card opens it. Touch mode keeps its existing layout with the new colours. Descriptions of header control positions further down this file refer to the previous design.
 
-The draft also changes some behaviour. **Cmd/Ctrl+Enter** now saves and moves on while you are typing in the study note or the simulator-item box, **Esc** leaves those fields, and **N** jumps into the study note, so an entry can be logged without the mouse. The **Logger** tab returns to the form you had open after visiting another area; press it again (or Home) for the forms list. The **Active Rules** tab shows how many cards are due. While searching forms, the NBME/CMS tabs count their matches so a result in the other category is not missed.
+The redesign also changes some behaviour. **Cmd/Ctrl+Enter** now saves and moves on while you are typing in the study note or the simulator-item box, **Esc** leaves those fields, and **N** jumps into the study note, so an entry can be logged without the mouse. The **Logger** tab returns to the form you had open after visiting another area; press it again (or Home) for the forms list. The **Active Rules** tab shows how many cards are due. While searching forms, the NBME/CMS tabs count their matches so a result in the other category is not missed.
 
 ## Study notes and daily review
 
