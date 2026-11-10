@@ -2310,11 +2310,12 @@ html[data-ui-mode="touch"] .topbar {
 }
 html[data-ui-mode="touch"] .brand__tagline,
 html[data-ui-mode="touch"] .zoom-control,
+html[data-ui-mode="touch"] #retrySyncBtn { display: none !important; }
+/* These four now live in the header options menu, which decides their visibility. */
 html[data-ui-mode="touch"] #backupBtn,
 html[data-ui-mode="touch"] #restoreBackupBtn,
 html[data-ui-mode="touch"] .theme-control,
-html[data-ui-mode="touch"] #uiModeToggleBtn,
-html[data-ui-mode="touch"] #retrySyncBtn { display: none !important; }
+html[data-ui-mode="touch"] #uiModeToggleBtn { display: none; }
 html[data-ui-mode="touch"] .brand { gap: 8px; }
 html[data-ui-mode="touch"] .brand__mark { width: 36px; height: 36px; border-radius: 10px; font-size: 21px; }
 html[data-ui-mode="touch"] .brand__name { font-size: 15px; }

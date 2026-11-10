@@ -9,16 +9,17 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ThunderShadow">
   <meta name="application-name" content="ThunderShadow">
-  <meta name="thundershadow-build" content="45">
+  <meta name="thundershadow-build" content="46">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=45"></script>
-  <script src="js/uuid.js?v=45"></script>
-  <link rel="icon" href="assets/icon.svg?v=45" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/icon-180.png?v=45">
-  <link rel="manifest" href="manifest.json?v=45">
-  <link rel="stylesheet" href="css/styles.css?v=45">
-  <link rel="stylesheet" href="css/storm.css?v=45">
+  <script src="js/theme-init.js?v=46"></script>
+  <script src="js/uuid.js?v=46"></script>
+  <link rel="icon" href="assets/icon.svg?v=46" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png?v=46">
+  <link rel="manifest" href="manifest.json?v=46">
+  <link rel="preload" href="css/styles.css?v=46" as="style">
+  <link rel="stylesheet" href="css/redesign.css?v=46">
+  <link rel="stylesheet" href="css/storm.css?v=46">
 </head>
 <body>
   <div class="storm-scene" aria-hidden="true">
@@ -39,32 +40,49 @@
       </div>
 
       <div class="topbar__tools">
-        <label class="theme-control" aria-label="Color theme"><select id="themeModeSelect"><option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option></select></label>
-        <button id="uiModeToggleBtn" class="mode-toggle" type="button" aria-pressed="false" aria-label="Switch to Touch UI" title="Switch to Touch UI">
-          <span class="mode-toggle__icon" aria-hidden="true">
-            <svg data-mode-icon="touch" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2"/><path d="M10 18.2h4"/></svg>
-            <svg data-mode-icon="desktop" viewBox="0 0 24 24"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 20.5h8M12 16.5v4"/></svg>
-          </span>
-          <span id="uiModeToggleText">Touch UI</span>
-        </button>
         <button id="syncStatusBtn" class="sync-status" type="button" data-state="local" data-short-label="Local" aria-label="Synchronization status. Click to sync now" title="Click to sync now">
           <i></i><span id="syncStatusText">Saved locally</span>
         </button>
         <button id="retrySyncBtn" class="icon-button" type="button" aria-label="Retry synchronization" title="Retry sync" hidden>↻</button>
-        <div class="zoom-control" aria-label="Interface scale">
-          <button id="zoomOutBtn" class="icon-button" type="button" aria-label="Zoom out">−</button>
-          <button id="zoomFitBtn" class="zoom-control__value" type="button" aria-label="Fit interface to window">100%</button>
-          <button id="zoomInBtn" class="icon-button" type="button" aria-label="Zoom in">＋</button>
-        </div>
         <button id="homeBtn" class="icon-button" type="button" aria-label="Open form library" title="Open logged forms">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5v8a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H4.5A1.5 1.5 0 0 1 3 19.5z"/></svg>
         </button>
-        <button id="backupBtn" class="icon-button" type="button" aria-label="Backup all data">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
-        </button>
-        <button id="restoreBackupBtn" class="icon-button" type="button" aria-label="Restore JSON backup" title="Restore JSON backup">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0 4 4m-4-4-4 4M5 8V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3"/></svg>
-        </button>
+        <div class="topbar-menu">
+          <button id="topbarMenuBtn" class="icon-button topbar-menu__button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="topbarMenuPanel" aria-label="Display and data options" title="Display and data options">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+          </button>
+          <div id="topbarMenuPanel" class="topbar-menu__panel" role="group" aria-label="Display and data options" hidden>
+            <div class="topbar-menu__row"><span class="topbar-menu__label">Theme</span>
+                <label class="theme-control" aria-label="Color theme"><select id="themeModeSelect"><option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option></select></label>
+            </div>
+            <div class="topbar-menu__row"><span class="topbar-menu__label">Layout</span>
+                <button id="uiModeToggleBtn" class="mode-toggle" type="button" aria-pressed="false" aria-label="Switch to Touch UI" title="Switch to Touch UI">
+                  <span class="mode-toggle__icon" aria-hidden="true">
+                    <svg data-mode-icon="touch" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2"/><path d="M10 18.2h4"/></svg>
+                    <svg data-mode-icon="desktop" viewBox="0 0 24 24"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 20.5h8M12 16.5v4"/></svg>
+                  </span>
+                  <span id="uiModeToggleText">Touch UI</span>
+                </button>
+            </div>
+            <div class="topbar-menu__row topbar-menu__row--scale"><span class="topbar-menu__label">Scale</span>
+                <div class="zoom-control" aria-label="Interface scale">
+                  <button id="zoomOutBtn" class="icon-button" type="button" aria-label="Zoom out">−</button>
+                  <button id="zoomFitBtn" class="zoom-control__value" type="button" aria-label="Fit interface to window">100%</button>
+                  <button id="zoomInBtn" class="icon-button" type="button" aria-label="Zoom in">＋</button>
+                </div>
+            </div>
+            <div class="topbar-menu__row topbar-menu__row--backup"><span class="topbar-menu__label">Backup all data</span>
+                <button id="backupBtn" class="icon-button" type="button" aria-label="Backup all data">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+                </button>
+            </div>
+            <div class="topbar-menu__row topbar-menu__row--backup"><span class="topbar-menu__label">Restore backup</span>
+                <button id="restoreBackupBtn" class="icon-button" type="button" aria-label="Restore JSON backup" title="Restore JSON backup">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0 4 4m-4-4-4 4M5 8V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3"/></svg>
+                </button>
+            </div>
+          </div>
+        </div>
         <input id="restoreInput" type="file" accept="application/json,.json" hidden>
       </div>
       <div id="loggerTopActions" class="logger-entry-nav" role="group" aria-label="Entry navigation" hidden>
@@ -735,14 +753,15 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=45" defer></script>
-  <script src="js/reasoning.js?v=45" defer></script>
-  <script src="js/analytics.js?v=45" defer></script>
-  <script src="js/browser-api.js?v=45" defer></script>
-  <script src="js/sync.js?v=45" defer></script>
-  <script src="js/app.js?v=45" defer></script>
-  <script src="js/v3.js?v=45" defer></script>
-  <script src="js/cloud-sync.js?v=45" defer></script>
-  <script src="js/updates.js?v=45" defer></script>
+  <script src="js/config.js?v=46" defer></script>
+  <script src="js/reasoning.js?v=46" defer></script>
+  <script src="js/analytics.js?v=46" defer></script>
+  <script src="js/browser-api.js?v=46" defer></script>
+  <script src="js/sync.js?v=46" defer></script>
+  <script src="js/app.js?v=46" defer></script>
+  <script src="js/v3.js?v=46" defer></script>
+  <script src="js/cloud-sync.js?v=46" defer></script>
+  <script src="js/updates.js?v=46" defer></script>
+  <script src="js/shell-menu.js?v=46" defer></script>
 </body>
 </html>

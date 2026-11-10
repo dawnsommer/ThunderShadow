@@ -35,7 +35,7 @@
   document.getElementById("resetReviewTextSizeBtn").addEventListener("click", () => applyReviewTextSize(100, true));
 
   const kindLabel = (kind) => kind === "reasoning" ? "Broad Pattern" : "Clinical Pattern";
-  const tagMarkup = (rule) => `<span class="note-tag note-tag--static" data-note-kind="${escapeHTML(rule.noteKind)}">${kindLabel(rule.noteKind)}</span>${rule.pattern ? `<span class="badge">${escapeHTML(rule.patternLabel)}</span>` : ""}`;
+  const tagMarkup = (rule) => `<span class="note-tag note-tag--static" data-note-kind="${escapeHTML(rule.noteKind)}">${kindLabel(rule.noteKind)}</span>${rule.pattern ? `<span class="badge badge--pattern" data-pattern-tone="${window.ThunderShadowReasoning.PATTERNS.findIndex((item) => item.value === rule.pattern) + 1}">${escapeHTML(rule.patternLabel)}</span>` : ""}`;
   const patternOptions = (selected) => `<option value="">No pattern</option>` + window.ThunderShadowReasoning.PATTERNS.map((pattern) => `<option value="${pattern.value}"${pattern.value === selected ? " selected" : ""}>${pattern.code} — ${pattern.label}</option>`).join("");
   const sourceLabel = (rule) => rule.sourceFormName ? `${rule.sourceFormName} · Entry ${rule.sourceQuestionNumber}` : rule.sourceFormId ? `Source form · Entry ${rule.sourceQuestionNumber || "?"}` : "Source unavailable";
 
