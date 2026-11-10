@@ -214,10 +214,43 @@ function calculateAnalytics(allForms, filters = {}) {
     };
   }
 
+  // Form length is the total number of questions on the form. Logged entries are the wrong and
+  // unstable-correct questions among them, so score = (total - wrong) / total and
+  // confident correct = (total - wrong - unstable) / total. Forms without a length stay null.
+  const percent = (part, whole) => Number((part * 100 / whole).toFixed(1));
+  const formScores = forms.map((form) => {
+    const logged = (form.questions || []).filter(isLogged);
+    const wrong = logged.filter((q) => ["1", "2", "3", "4"].includes(q.errorCode)).length;
+    const unstable = logged.filter((q) => ["5", "6", "7"].includes(q.errorCode)).length;
+    const length = Number(form.originalFormLength);
+    // Every logged entry is one question on the form, so a total smaller than the entries logged is not usable.
+    const totalQuestions = Number.isInteger(length) && length > 0 && logged.length <= length ? length : null;
+    const confident = totalQuestions !== null && wrong + unstable <= totalQuestions ? totalQuestions - wrong - unstable : null;
+    return {
+      formId: form.id, formName: form.name, date: form.date, logged: logged.length, wrong, unstable, totalQuestions,
+      score: totalQuestions === null ? null : percent(totalQuestions - wrong, totalQuestions),
+      confidentCorrect: confident,
+      confidentRate: confident === null ? null : percent(confident, totalQuestions)
+    };
+  });
+  const scored = formScores.filter((item) => item.totalQuestions !== null);
+  const scoredQuestions = scored.reduce((sum, item) => sum + item.totalQuestions, 0);
+  const scoredWrong = scored.reduce((sum, item) => sum + item.wrong, 0);
+  const confidentForms = scored.filter((item) => item.confidentCorrect !== null);
+  const confidentQuestions = confidentForms.reduce((sum, item) => sum + item.totalQuestions, 0);
+  const scoreSummary = {
+    formsWithLength: scored.length,
+    totalQuestions: scoredQuestions,
+    score: scoredQuestions ? percent(scoredQuestions - scoredWrong, scoredQuestions) : null,
+    confidentRate: confidentQuestions ? percent(confidentForms.reduce((sum, item) => sum + item.confidentCorrect, 0), confidentQuestions) : null,
+    wrongPer100: scoredQuestions ? percent(scoredWrong, scoredQuestions) : null,
+    unstablePer100: scoredQuestions ? percent(scored.reduce((sum, item) => sum + item.unstable, 0), scoredQuestions) : null
+  };
+
   return {
     generatedAt: new Date().toISOString(),
     filters: { startDate: filters.startDate || null, endDate: filters.endDate || null, formIds: [...selectedIds] },
-    summary: { forms: forms.length, loggedQuestions, errorCodedQuestions, patternCodedEntries, wrongAnswers, unstableCorrect, contentGapFrequency, reasoningNotePresence },
+    summary: { forms: forms.length, loggedQuestions, errorCodedQuestions, patternCodedEntries, wrongAnswers, unstableCorrect, contentGapFrequency, reasoningNotePresence, ...scoreSummary },
     errors: Object.values(errors),
     patterns: Object.values(patterns).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
     speed: Object.values(speed).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
@@ -227,14 +260,7 @@ function calculateAnalytics(allForms, filters = {}) {
       overthought: speed.overthought.count
     },
     combinations: combinations.filter((item) => item.count > 0).sort((a, b) => b.count - a.count),
-    recentTrend: forms.map((form) => ({
-      formId: form.id,
-      formName: form.name,
-      date: form.date,
-      logged: (form.questions || []).filter(isLogged).length,
-      wrong: (form.questions || []).filter((q) => ["1", "2", "3", "4"].includes(q.errorCode)).length,
-      unstable: (form.questions || []).filter((q) => ["5", "6", "7"].includes(q.errorCode)).length
-    }))
+    recentTrend: formScores
   };
 }
 

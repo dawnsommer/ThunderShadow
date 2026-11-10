@@ -16,7 +16,7 @@
   state.bulkBusy = false;
   state.selectedReview = null;
   state.analysisScope = "all";
-  state.timelineMode = "split";
+  state.timelineMode = "score";
   try {
     const saved = JSON.parse(sessionStorage.getItem("thundershadow:selected-review") || "null");
     if (Array.isArray(saved?.ids) && saved.ids.every((id) => typeof id === "string")) state.selectedReview = { ids: [...new Set(saved.ids)], reviewed: Math.max(0, Number(saved.reviewed) || 0) };
@@ -422,11 +422,16 @@
     const latest = data.recentTrend.at(-1), earlier = data.recentTrend.slice(0, -1);
     const signals = [];
     if (topError?.count) signals.push(`<div class="an-signal"><span class="an-signal__label">Most frequent error code</span><strong>${codeBadge(topError.id)}${escapeHTML(topError.label)}</strong><span class="an-signal__meta">${plural(topError.count, "entry", "entries")} · ${topError.percentage}% of coded</span></div>`);
-    if (latest && earlier.length) {
-      const average = earlier.reduce((sum, item) => sum + item.wrong, 0) / earlier.length, delta = latest.wrong - average;
-      const chip = Math.abs(delta) < 0.5 ? `<span class="an-trend is-flat"><i aria-hidden="true">→</i>In line with earlier forms</span>` : `<span class="an-trend ${delta < 0 ? "is-better" : "is-worse"}"><i aria-hidden="true">${delta < 0 ? "↓" : "↑"}</i>${Math.abs(delta).toFixed(1)} ${delta < 0 ? "fewer" : "more"} wrong than the earlier average</span>`;
-      signals.push(`<div class="an-signal"><span class="an-signal__label">Latest form</span><strong>${escapeHTML(latest.formName)}</strong><span class="an-signal__meta">${latest.wrong} wrong · ${latest.unstable} unstable</span>${chip}</div>`);
-    } else if (latest) signals.push(`<div class="an-signal"><span class="an-signal__label">Latest form</span><strong>${escapeHTML(latest.formName)}</strong><span class="an-signal__meta">${latest.wrong} wrong · ${latest.unstable} unstable · add another form to see a trend</span></div>`);
+    const scoredEarlier = earlier.filter((item) => item.score !== null);
+    const latestMeta = latest ? `${latest.score !== null ? `${latest.score}% score · ` : ""}${latest.wrong} wrong · ${latest.unstable} unstable` : "";
+    const trendNote = (delta, unit, better, worse) => Math.abs(delta) < 0.5 ? `<span class="an-trend is-flat"><i aria-hidden="true">→</i>In line with earlier forms</span>` : `<span class="an-trend ${delta > 0 === (unit === "points") ? "is-better" : "is-worse"}"><i aria-hidden="true">${delta > 0 ? "↑" : "↓"}</i>${Math.abs(delta).toFixed(1)} ${delta > 0 ? better : worse}</span>`;
+    if (latest && latest.score !== null && scoredEarlier.length) {
+      const average = scoredEarlier.reduce((sum, item) => sum + item.score, 0) / scoredEarlier.length;
+      signals.push(`<div class="an-signal"><span class="an-signal__label">Latest form</span><strong>${escapeHTML(latest.formName)}</strong><span class="an-signal__meta">${latestMeta}</span>${trendNote(latest.score - average, "points", "points above the earlier average", "points below the earlier average")}</div>`);
+    } else if (latest && earlier.length) {
+      const average = earlier.reduce((sum, item) => sum + item.wrong, 0) / earlier.length;
+      signals.push(`<div class="an-signal"><span class="an-signal__label">Latest form</span><strong>${escapeHTML(latest.formName)}</strong><span class="an-signal__meta">${latestMeta}</span>${trendNote(latest.wrong - average, "wrong", "more wrong than the earlier average", "fewer wrong than the earlier average")}</div>`);
+    } else if (latest) signals.push(`<div class="an-signal"><span class="an-signal__label">Latest form</span><strong>${escapeHTML(latest.formName)}</strong><span class="an-signal__meta">${latestMeta} · add another form to see a trend</span></div>`);
     signals.push(topSpeed
       ? `<div class="an-signal"><span class="an-signal__label">Most frequent speed flag</span><strong>${escapeHTML(topSpeed.label)}</strong><span class="an-signal__meta">${plural(topSpeed.count, "entry", "entries")}</span></div>`
       : `<div class="an-signal"><span class="an-signal__label">Speed flags</span><strong>None logged</strong><span class="an-signal__meta">Mark rushed or overthought entries to see them here.</span></div>`);
@@ -448,21 +453,26 @@
   }
 
   function renderAnalysisStats(data) {
-    const s = data.summary;
+    const s = data.summary, scored = s.formsWithLength > 0;
+    const basis = scored ? (s.formsWithLength === s.forms ? `${s.totalQuestions} questions` : `${plural(s.formsWithLength, "form")} with a question total`) : "";
+    const missing = "Add each form's total questions";
     const tiles = [
-      ["Forms", s.forms, ""],
-      ["Logged entries", s.loggedQuestions, s.forms ? `${(s.loggedQuestions / s.forms).toFixed(1)} per form` : ""],
-      ["Wrong (codes 1–4)", s.wrongAnswers, `${share(s.wrongAnswers, s.errorCodedQuestions)} of coded`],
-      ["Unstable correct (5–7)", s.unstableCorrect, `${share(s.unstableCorrect, s.errorCodedQuestions)} of coded`],
-      ["With a reasoning pattern", s.patternCodedEntries, `${share(s.patternCodedEntries, s.loggedQuestions)} of entries`],
-      ["With a study note", s.reasoningNotePresence, `${share(s.reasoningNotePresence, s.loggedQuestions)} of entries`]
+      ["Score", scored ? `${s.score}%` : "—", scored ? `not wrong · ${basis}` : missing],
+      ["Confident correct", s.confidentRate !== null ? `${s.confidentRate}%` : "—", scored ? "neither wrong nor unstable" : missing],
+      ["Wrong (codes 1–4)", s.wrongAnswers, scored ? `${s.wrongPer100} per 100 questions` : `${share(s.wrongAnswers, s.errorCodedQuestions)} of coded`],
+      ["Unstable correct (5–7)", s.unstableCorrect, scored ? `${s.unstablePer100} per 100 questions` : `${share(s.unstableCorrect, s.errorCodedQuestions)} of coded`],
+      ["Logged entries", s.loggedQuestions, `${plural(s.forms, "form")} · ${s.forms ? (s.loggedQuestions / s.forms).toFixed(1) : 0} per form`],
+      ["With a reasoning pattern", `${share(s.patternCodedEntries, s.loggedQuestions)}`, `study note on ${share(s.reasoningNotePresence, s.loggedQuestions)}`]
     ];
     analysisEl("analysisCards").innerHTML = tiles.map(([label, value, meta]) => `<div class="an-stat"><span class="an-stat__label">${label}</span><strong>${value}</strong><span class="an-stat__meta">${meta}</span></div>`).join("");
   }
 
-  function timelineSeries(data) {
-    const codes = state.timelineMode === "codes";
-    const series = codes
+  function timelineSeries(data, mode) {
+    if (mode === "score") return [
+      { key: "score", label: "Score", values: data.recentTrend.map((item) => item.score), unit: "%" },
+      { key: "confident", label: "Confident correct", values: data.recentTrend.map((item) => item.confidentRate), unit: "%" }
+    ];
+    const series = mode === "codes"
       ? data.errors.map((error) => ({ key: `code-${error.id}`, code: error.id, label: `${error.id} · ${error.label}`, values: error.byForm.map((item) => item.count) }))
       : [
         { key: "wrong", label: "Wrong (codes 1–4)", values: data.recentTrend.map((item) => item.wrong) },
@@ -474,48 +484,75 @@
   }
 
   function renderAnalysisTimeline(data) {
-    const host = analysisEl("analysisTimeline"), forms = data.recentTrend, series = timelineSeries(data), codes = state.timelineMode === "codes";
-    const peak = Math.max(1, ...forms.map((item) => item.logged));
-    const step = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find((size) => peak / size <= 4) || 1000, top = Math.ceil(peak / step) * step, plotHeight = 168;
-    const ticks = []; for (let tick = 0; tick <= top; tick += step) ticks.push(tick);
-    state.timeline = { forms, series };
-    const swatch = (item) => `<i class="an-swatch" ${item.code ? `data-code="${item.code}"` : `data-series="${item.key}"`}></i>`;
-    const columns = forms.map((form, index) => {
-      const stackHeight = form.logged * plotHeight / top;
-      const segments = series.map((item) => { const value = item.values[index]; if (!value) return ""; const height = value * stackHeight / form.logged; return `<i ${item.code ? `data-code="${item.code}"` : `data-series="${item.key}"`} style="flex-grow:${value}">${item.code && height >= 16 ? item.code : ""}</i>`; }).join("");
-      return `<button type="button" class="an-col" data-index="${index}" aria-label="${escapeHTML(`${form.formName}, ${form.date}: ${series.map((item) => `${item.label} ${item.values[index]}`).join(", ")}`)}">
-        <span class="an-col__bar"><span class="an-col__total">${form.logged}</span><span class="an-col__stack" style="height:${stackHeight.toFixed(1)}px">${segments}</span></span>
-        <span class="an-col__label">${escapeHTML(form.formName)}</span><span class="an-col__date">${escapeHTML(form.date.slice(5))}</span>
-      </button>`;
-    }).join("");
-    host.innerHTML = `<div class="an-legend">${series.map((item) => `<span>${swatch(item)}${escapeHTML(item.label)}</span>`).join("")}</div>
-      <div class="an-chart${codes ? " an-chart--codes" : ""}">
-        <div class="an-yaxis" aria-hidden="true">${ticks.map((tick) => `<span style="bottom:${tick * plotHeight / top}px">${tick}</span>`).join("")}</div>
-        <div class="an-plot-scroll" tabindex="-1"><div class="an-plot"><div class="an-gridlines" aria-hidden="true">${ticks.map((tick) => `<i style="bottom:${tick * plotHeight / top}px"></i>`).join("")}</div>${columns}</div></div>
+    const host = analysisEl("analysisTimeline"), forms = data.recentTrend, plotHeight = 168, cap = 20;
+    const hasScore = forms.some((item) => item.score !== null);
+    const mode = state.timelineMode === "score" && !hasScore ? "split" : state.timelineMode;
+    document.querySelectorAll("[data-timeline-mode]").forEach((button) => { button.hidden = button.dataset.timelineMode === "score" && !hasScore; button.setAttribute("aria-pressed", String(button.dataset.timelineMode === mode)); });
+    analysisEl("analysisTimelineNote").textContent = mode === "score" ? "Share of each form's questions, oldest to newest." : "Logged entries per form, oldest to newest.";
+    const series = timelineSeries(data, mode);
+    state.timeline = { forms, series, mode };
+    const mark = (item) => item.code ? `data-code="${item.code}"` : `data-series="${item.key}"`;
+    const label = (form) => `<span class="an-col__label">${escapeHTML(form.formName)}</span><span class="an-col__date">${escapeHTML(form.date.slice(5))}</span>`;
+    let ticks, place, columns, overlay = "";
+    if (mode === "score") {
+      const values = series.flatMap((item) => item.values).filter((value) => value !== null);
+      const low = Math.max(0, Math.floor((Math.min(...values) - 3) / 5) * 5), span = 100 - low, step = span <= 20 ? 5 : span <= 50 ? 10 : 20;
+      ticks = []; for (let tick = 100; tick >= low; tick -= step) ticks.unshift(tick);
+      const floor = ticks[0];
+      place = (value) => (value - floor) * plotHeight / (100 - floor);
+      const lastScored = forms.map((form) => form.score !== null).lastIndexOf(true);
+      columns = forms.map((form, index) => {
+        const points = series.map((item) => ({ item, value: item.values[index] })).filter((point) => point.value !== null);
+        const clash = points.length === 2 && Math.abs(place(points[0].value) - place(points[1].value)) < 15;
+        const dots = points.map((point, order) => `<i class="an-dot" ${mark(point.item)} style="bottom:${place(point.value).toFixed(1)}px">${index === lastScored && !(clash && order === 1) ? `<b class="${order ? "is-below" : ""}">${point.value}%</b>` : ""}</i>`).join("");
+        const spoken = form.score === null ? "total questions not set" : `score ${form.score}%${form.confidentRate !== null ? `, confident correct ${form.confidentRate}%` : ""}`;
+        return `<button type="button" class="an-col an-col--score" data-index="${index}" aria-label="${escapeHTML(`${form.formName}, ${form.date}: ${spoken}`)}"><span class="an-col__bar">${dots || '<span class="an-col__missing">no total</span>'}</span>${label(form)}</button>`;
+      }).join("");
+      // Lines run between column centres; the overlay stretches horizontally only, so strokes stay 2px.
+      const segments = (item) => { const runs = []; let run = []; item.values.forEach((value, index) => { if (value === null) { if (run.length > 1) runs.push(run); run = []; } else run.push(`${index + 0.5},${(cap + plotHeight - place(value)).toFixed(1)}`); }); if (run.length > 1) runs.push(run); return runs.map((points) => `<polyline ${mark(item)} points="${points.join(" ")}"/>`).join(""); };
+      overlay = `<svg class="an-lines" viewBox="0 0 ${forms.length} ${cap + plotHeight}" preserveAspectRatio="none" aria-hidden="true">${series.map(segments).join("")}</svg>`;
+    } else {
+      const peak = Math.max(1, ...forms.map((item) => item.logged));
+      const step = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find((size) => peak / size <= 4) || 1000, top = Math.ceil(peak / step) * step;
+      ticks = []; for (let tick = 0; tick <= top; tick += step) ticks.push(tick);
+      place = (value) => value * plotHeight / top;
+      columns = forms.map((form, index) => {
+        const stackHeight = place(form.logged);
+        const segments = series.map((item) => { const value = item.values[index]; if (!value) return ""; return `<i ${mark(item)} style="flex-grow:${value}">${item.code && value * stackHeight / form.logged >= 16 ? item.code : ""}</i>`; }).join("");
+        return `<button type="button" class="an-col" data-index="${index}" aria-label="${escapeHTML(`${form.formName}, ${form.date}: ${series.map((item) => `${item.label} ${item.values[index]}`).join(", ")}`)}"><span class="an-col__bar"><span class="an-col__total">${form.logged}</span><span class="an-col__stack" style="height:${stackHeight.toFixed(1)}px">${segments}</span></span>${label(form)}</button>`;
+      }).join("");
+    }
+    host.innerHTML = `<div class="an-legend">${series.map((item) => `<span><i class="an-swatch${mode === "score" ? " an-swatch--line" : ""}" ${mark(item)}></i>${escapeHTML(item.label)}</span>`).join("")}</div>
+      <div class="an-chart an-chart--${mode}">
+        <div class="an-yaxis" aria-hidden="true">${ticks.map((tick) => `<span style="bottom:${place(tick)}px">${tick}${mode === "score" ? "%" : ""}</span>`).join("")}</div>
+        <div class="an-plot-scroll" tabindex="-1"><div class="an-plot"><div class="an-gridlines" aria-hidden="true">${ticks.map((tick) => `<i style="bottom:${place(tick)}px"></i>`).join("")}</div><div class="an-cols" style="max-width:${forms.length * 110}px">${overlay}${columns}</div></div></div>
         <div class="an-tip" role="status" hidden></div>
-      </div>`;
+      </div>${mode === "score" && forms.some((item) => item.score === null) ? '<p class="an-hint">Forms without a question total are skipped. Add it with Edit on the form card.</p>' : ""}`;
     const scroller = host.querySelector(".an-plot-scroll"); scroller.scrollLeft = scroller.scrollWidth;
-    const lengths = new Map(app.getForms().map((form) => [form.id, form.length]));
-    analysisEl("analysisTrends").innerHTML = table(["Date", "Form", "Logged", "Wrong", "Unstable correct", "Wrong ÷ form length"], forms.map((item) => [escapeHTML(item.date), escapeHTML(item.formName), item.logged, item.wrong, item.unstable, lengths.get(item.formId) ? `${item.wrong} of ${lengths.get(item.formId)} (${(item.wrong * 100 / lengths.get(item.formId)).toFixed(1)}%)` : "—"]));
+    const figure = (value) => value === null ? "—" : `${value}%`;
+    analysisEl("analysisTrends").innerHTML = table(["Date", "Form", "Questions", "Wrong", "Unstable correct", "Score", "Confident correct", "Logged entries"], forms.map((item) => [escapeHTML(item.date), escapeHTML(item.formName), item.totalQuestions ?? "—", item.wrong, item.unstable, figure(item.score), figure(item.confidentRate), item.logged]));
   }
 
   // One readout per form listing every series; built with textContent because names are user data.
   function showTimelineTip(column) {
-    const chart = column.closest(".an-chart"), tip = chart?.querySelector(".an-tip"), form = state.timeline?.forms[Number(column.dataset.index)];
+    const chart = column.closest(".an-chart"), tip = chart?.querySelector(".an-tip"), index = Number(column.dataset.index), form = state.timeline?.forms[index];
     if (!tip || !form) return;
     tip.textContent = "";
+    const row = (labelText, value, item) => {
+      const line = document.createElement("span"); line.className = "an-tip__row";
+      const key = document.createElement("i"); if (item?.code) key.dataset.code = item.code; else if (item) key.dataset.series = item.key; else key.className = "is-blank";
+      const label = document.createElement("span"); label.textContent = labelText;
+      const figure = document.createElement("b"); figure.textContent = value;
+      line.append(key, label, figure); tip.append(line);
+    };
     const head = document.createElement("strong"); head.textContent = form.formName;
-    const date = document.createElement("small"); date.textContent = `${form.date} · ${plural(form.logged, "logged entry", "logged entries")}`;
+    const date = document.createElement("small");
+    date.textContent = state.timeline.mode === "score" ? `${form.date} · ${form.totalQuestions === null ? "total questions not set" : `${form.totalQuestions} questions`}` : `${form.date} · ${plural(form.logged, "logged entry", "logged entries")}`;
     tip.append(head, date);
-    state.timeline.series.forEach((item) => {
-      const value = item.values[Number(column.dataset.index)];
-      if (!value && item.key === "none") return;
-      const row = document.createElement("span"); row.className = "an-tip__row";
-      const key = document.createElement("i"); if (item.code) key.dataset.code = item.code; else key.dataset.series = item.key;
-      const label = document.createElement("span"); label.textContent = item.label;
-      const figure = document.createElement("b"); figure.textContent = String(value);
-      row.append(key, label, figure); tip.append(row);
-    });
+    if (state.timeline.mode === "score") {
+      state.timeline.series.forEach((item) => { if (item.values[index] !== null) row(item.label, `${item.values[index]}%`, item); });
+      row("Wrong", String(form.wrong)); row("Unstable correct", String(form.unstable));
+    } else state.timeline.series.forEach((item) => { if (item.values[index] || item.key !== "none") row(item.label, String(item.values[index]), item); });
     tip.hidden = false;
     const scroller = chart.querySelector(".an-plot-scroll");
     // Sit beside the column, never on top of it: right when there is room, otherwise left.
@@ -595,7 +632,7 @@
     const empty = Boolean(filters.empty) || !data || !data.summary.loggedQuestions;
     analysisEl("analysisEmpty").hidden = !empty;
     analysisEl("analysisBody").hidden = empty;
-    analysisEl("exportAnalyticsBtn").disabled = analysisEl("exportChatgptBtn").disabled = Boolean(filters.empty);
+    analysisEl("exportAnalyticsBtn").disabled = Boolean(filters.empty);
     if (empty) {
       analysisEl("analysisEmptyMessage").textContent = filters.emptyMessage || (app.getForms().length ? "No logged entries in this selection. Widen the selection or log entries in these forms." : "Log entries in a form and they will be summarised here.");
       analysisEl("analysisScopeNote").textContent = "";
@@ -1066,7 +1103,6 @@
     const button = event.target.closest("[data-timeline-mode]");
     if (!button || !state.analytics) return;
     state.timelineMode = button.dataset.timelineMode;
-    event.currentTarget.querySelectorAll("[data-timeline-mode]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
     renderAnalysisTimeline(state.analytics);
   });
   document.getElementById("applyAnalysisFilters").addEventListener("click", reloadAnalysis);
@@ -1089,12 +1125,10 @@
 
   document.getElementById("exportRulesBtn").addEventListener("click", () => download("/api/export/active-rules.tsv", "ThunderShadow_Active_Rules.tsv"));
   document.getElementById("exportAnalyticsBtn").addEventListener("click", () => download(`/api/export/analytics.json?${analysisQuery()}`, "ThunderShadow_Analytics.json"));
-  document.getElementById("exportChatgptBtn").addEventListener("click", () => download(`/api/export/chatgpt-analysis.md?${analysisQuery()}`, "ThunderShadow_ChatGPT_Analysis.md"));
   document.getElementById("exportAllFormsBtn").addEventListener("click", () => download("/api/export/all-forms.tsv", "ThunderShadow_Longitudinal_Log.tsv"));
   document.getElementById("exportAnkiBtn").addEventListener("click", () => download("/api/export/anki.tsv", "ThunderShadow_Anki.tsv"));
   document.getElementById("settingsExportRulesBtn").addEventListener("click", () => download("/api/export/active-rules.tsv", "ThunderShadow_Active_Rules.tsv"));
   document.getElementById("settingsExportAnalyticsBtn").addEventListener("click", () => download("/api/export/analytics.json", "ThunderShadow_Analytics.json"));
-  document.getElementById("settingsExportChatgptBtn").addEventListener("click", () => download("/api/export/chatgpt-analysis.md", "ThunderShadow_ChatGPT_Analysis.md"));
   document.getElementById("createBackupBtn").addEventListener("click", async () => {
     try {
       const result = await app.apiRequest("/api/backups", { method: "POST", body: JSON.stringify({}) });

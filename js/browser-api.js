@@ -372,7 +372,9 @@
     const examType = String(input.examType ?? existing?.examType ?? "").trim().slice(0, 80);
     const date = String(input.date ?? existing?.date ?? nowISO().slice(0, 10));
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Date must use YYYY-MM-DD format.");
-    let originalFormLength = input.originalFormLength ?? input.questionCount ?? existing?.originalFormLength ?? null;
+    // An explicit null means "no total set". Only legacy shapes without the field fall back to the
+    // questionCount alias, which is stored as 1 for such forms and must not become a real total.
+    let originalFormLength = Object.prototype.hasOwnProperty.call(input || {}, "originalFormLength") ? input.originalFormLength : (input.questionCount ?? existing?.originalFormLength ?? null);
     if (originalFormLength === "" || originalFormLength == null) originalFormLength = null;
     else {
       originalFormLength = Number(originalFormLength);
@@ -717,22 +719,6 @@
     });
     return [...headers, ...rows].join("\n");
   }
-  function analysisMarkdown(analytics, rules) {
-    const lines = [
-      "# ThunderShadow ChatGPT Analysis Package", "", `Generated: ${analytics.generatedAt}`, "", "## Database summary",
-      `- Forms: ${analytics.summary.forms}`, `- Logged questions: ${analytics.summary.loggedQuestions}`, `- Error-coded questions: ${analytics.summary.errorCodedQuestions}`,
-      `- Wrong answers (codes 1–4): ${analytics.summary.wrongAnswers}`, `- Unstable correct answers (codes 5–7): ${analytics.summary.unstableCorrect}`, "", "## Error frequencies",
-      ...analytics.errors.map((item) => `- Code ${item.id} — ${item.label}: ${item.count} (${item.percentage}%)`), "", "## Rule-pattern frequencies",
-      ...analytics.patterns.map((item) => { const topError = item.associatedErrorCodes[0], topSpeed = item.associatedSpeedFlags[0], subjects = item.representativeSubjects.map((subject) => subject.label).join(", ") || "none"; return `- ${item.code} — ${item.label}: ${item.level.label}; ${item.count} entries (${item.percentage}% of pattern-coded) across ${item.formCount} forms; top Error Code ${topError ? `${topError.id} (${topError.count})` : "none"}; top Speed Flag ${topSpeed ? `${topSpeed.label} (${topSpeed.count})` : "none"}; subjects/topics ${subjects}; trend ${item.trend.direction}; Fix: ${item.correctiveAction}`; }),
-      "", "## Speed frequencies", ...analytics.speed.map((item) => `- ${item.label}: ${item.count}`), "", "## Cross-form trends",
-      ...analytics.recentTrend.map((item) => `- ${item.date} — ${item.formName}: logged ${item.logged}, wrong ${item.wrong}, unstable correct ${item.unstable}`), "", "## Active rules",
-      ...rules.filter((rule) => rule.status !== "archived").map((rule) => `- [${thunderShadowId(rule.id)}] [${rule.status}] ${rule.ruleText} (${rule.patternLabel}; ${rule.occurrenceCount} exact occurrences; next review ${rule.nextReviewAt || "unscheduled"})`),
-      "", "## Recurring combinations", ...(analytics.combinations.length ? analytics.combinations.map((item) => `- ${item.label}: ${item.count}`) : ["- None in the selected data."]),
-      "", "## Ready-to-use analysis prompt", "Analyze this local NBME/CMS reasoning log. Prioritize recurring, recent weaknesses; distinguish wrong answers from unstable correct answers; compare the displayed earlier and recent counts before describing improvement; treat combinations as descriptive associations rather than causes. Recommend a short list of concrete reasoning rules to review without inventing clinical facts or adding new logging fields."
-    ];
-    return lines.join("\n");
-  }
-
   async function tombstones() {
     const stored = await getMeta("tombstones", { forms: {}, rules: {}, entries: {} });
     return { forms: { ...(stored?.forms || {}) }, rules: { ...(stored?.rules || {}) }, entries: { ...(stored?.entries || {}) } };
@@ -1272,7 +1258,6 @@
         return textResponse(activeRulesAnkiTsv(rules), "text/tab-separated-values; charset=utf-8", form ? `${safeFilename(form.name)}_ThunderShadow_Anki.tsv` : "ThunderShadow_Anki.tsv");
       }
       if (pathname.endsWith("/api/export/analytics.json") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; return textResponse(JSON.stringify(calculateAnalytics(await allForms(), filters), null, 2), "application/json; charset=utf-8", "ThunderShadow_Analytics.json"); }
-      if (pathname.endsWith("/api/export/chatgpt-analysis.md") && method === "GET") { const filters = { startDate: url.searchParams.get("startDate") || undefined, endDate: url.searchParams.get("endDate") || undefined, formIds: (url.searchParams.get("formIds") || "").split(",").filter(Boolean) }; const analytics = calculateAnalytics(await allForms(), filters); return textResponse(analysisMarkdown(analytics, await allHydratedRules()), "text/markdown; charset=utf-8", "ThunderShadow_ChatGPT_Analysis.md"); }
 
       if (pathname.endsWith("/api/notes/upgrade") && method === "GET") return jsonResponse(await noteUpgradeStatus());
       if (pathname.endsWith("/api/notes/upgrade") && method === "POST") return jsonResponse(await upgradeNoteMetadata());

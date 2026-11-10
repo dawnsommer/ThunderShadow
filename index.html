@@ -9,17 +9,17 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="ThunderShadow">
   <meta name="application-name" content="ThunderShadow">
-  <meta name="thundershadow-build" content="48">
+  <meta name="thundershadow-build" content="49">
   <meta name="description" content="ThunderShadow is a browser-based NBME and CMS error logging, rule review, and study-analysis app. Study data is stored locally in the browser by default, with optional private Google Drive app-data sync across devices.">
   <title>ThunderShadow</title>
-  <script src="js/theme-init.js?v=48"></script>
-  <script src="js/uuid.js?v=48"></script>
-  <link rel="icon" href="assets/icon.svg?v=48" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/icon-180.png?v=48">
-  <link rel="manifest" href="manifest.json?v=48">
-  <link rel="preload" href="css/styles.css?v=48" as="style">
-  <link rel="stylesheet" href="css/redesign.css?v=48">
-  <link rel="stylesheet" href="css/storm.css?v=48">
+  <script src="js/theme-init.js?v=49"></script>
+  <script src="js/uuid.js?v=49"></script>
+  <link rel="icon" href="assets/icon.svg?v=49" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png?v=49">
+  <link rel="manifest" href="manifest.json?v=49">
+  <link rel="preload" href="css/styles.css?v=49" as="style">
+  <link rel="stylesheet" href="css/redesign.css?v=49">
+  <link rel="stylesheet" href="css/storm.css?v=49">
 </head>
 <body>
   <div class="storm-scene" aria-hidden="true">
@@ -410,7 +410,7 @@
               <button type="button" data-analysis-scope="recent" aria-pressed="false">Last 3</button>
               <button type="button" data-analysis-scope="custom" aria-pressed="false" aria-controls="analysisCustom" aria-expanded="false">Custom</button>
             </div>
-            <div class="an-head__actions"><button id="exportAnalyticsBtn" class="button button--ghost" type="button">Analytics JSON</button><button id="exportChatgptBtn" class="button button--ghost" type="button">ChatGPT package</button></div>
+            <div class="an-head__actions"><button id="exportAnalyticsBtn" class="button button--ghost" type="button" title="Download every figure on this page for the current selection">Export data (JSON)</button></div>
           </header>
           <section id="analysisCustom" class="panel an-custom" aria-label="Custom selection" hidden>
             <div class="an-custom__dates">
@@ -431,9 +431,10 @@
             <div id="analysisCards" class="an-stats" aria-label="Summary"></div>
             <section class="panel an-card an-card--timeline" aria-labelledby="analysisTimelineTitle">
               <header class="an-card__head">
-                <div><h2 id="analysisTimelineTitle">Form by form</h2><p>Logged entries per form, oldest to newest.</p></div>
+                <div><h2 id="analysisTimelineTitle">Form by form</h2><p id="analysisTimelineNote">Oldest to newest.</p></div>
                 <div id="analysisTimelineMode" class="segmented-control an-mode" role="group" aria-label="Chart breakdown">
-                  <button type="button" data-timeline-mode="split" aria-pressed="true">Wrong / unstable</button>
+                  <button type="button" data-timeline-mode="score" aria-pressed="true">Score</button>
+                  <button type="button" data-timeline-mode="split" aria-pressed="false">Wrong / unstable</button>
                   <button type="button" data-timeline-mode="codes" aria-pressed="false">By error code</button>
                 </div>
               </header>
@@ -616,7 +617,6 @@
                 <button id="exportAllFormsBtn" class="button button--ghost" type="button">Form logs TSV</button>
                 <button id="settingsExportRulesBtn" class="button button--ghost" type="button">Rules data TSV</button>
                 <button id="settingsExportAnalyticsBtn" class="button button--ghost" type="button">Analytics JSON</button>
-                <button id="settingsExportChatgptBtn" class="button button--ghost" type="button">Analysis Markdown</button>
               </div>
             </section>
             <section class="panel v3-panel settings-card">
@@ -650,7 +650,7 @@
         </label>
         <div class="field-grid">
           <label class="field">
-            <span>Original total form length <em>optional</em></span>
+            <span>Total questions on the form <em>optional</em></span>
             <input id="newFormQuestionCount" type="number" min="1" max="1000" inputmode="numeric">
             <span class="quick-fill"><button type="button" data-length="50">50</button><button type="button" data-length="100">100</button><button type="button" data-length="160">160</button><button type="button" data-length="200">200</button></span>
           </label>
@@ -795,15 +795,15 @@
 
   <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="js/config.js?v=48" defer></script>
-  <script src="js/reasoning.js?v=48" defer></script>
-  <script src="js/analytics.js?v=48" defer></script>
-  <script src="js/browser-api.js?v=48" defer></script>
-  <script src="js/sync.js?v=48" defer></script>
-  <script src="js/app.js?v=48" defer></script>
-  <script src="js/v3.js?v=48" defer></script>
-  <script src="js/cloud-sync.js?v=48" defer></script>
-  <script src="js/updates.js?v=48" defer></script>
-  <script src="js/shell-menu.js?v=48" defer></script>
+  <script src="js/config.js?v=49" defer></script>
+  <script src="js/reasoning.js?v=49" defer></script>
+  <script src="js/analytics.js?v=49" defer></script>
+  <script src="js/browser-api.js?v=49" defer></script>
+  <script src="js/sync.js?v=49" defer></script>
+  <script src="js/app.js?v=49" defer></script>
+  <script src="js/v3.js?v=49" defer></script>
+  <script src="js/cloud-sync.js?v=49" defer></script>
+  <script src="js/updates.js?v=49" defer></script>
+  <script src="js/shell-menu.js?v=49" defer></script>
 </body>
 </html>

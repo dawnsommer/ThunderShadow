@@ -2,13 +2,13 @@
   "use strict";
 
 const PATTERNS = [
-  { code: "P1", value: "task_target", label: "TASK", color: "#3B82F6", definition: "Solved a different question from the one NBME asked.", fix: "Translate the final question into a 2–4 word command before evaluating options." },
-  { code: "P2", value: "stability_urgency", label: "STABILITY", color: "#E11D48", definition: "Failed to classify instability, acuity, or an immediate threat before choosing the pathway.", fix: "Ask whether an immediate threat overrides the normal diagnostic or management pathway." },
-  { code: "P3", value: "sequence_nbs", label: "SEQUENCE", color: "#F59E0B", definition: "Recognized the clinical problem but selected the wrong stage of diagnosis or management.", fix: "Locate the current node: stabilize → evaluate → confirm → treat → escalate → definitive management." },
-  { code: "P4", value: "frame_assumption", label: "FRAME", color: "#8B5CF6", definition: "Built the wrong illness script or added an unsupported assumption before comparing choices.", fix: "Restate the case neutrally using only supplied facts; require a real contradiction before rejecting an option." },
-  { code: "P5", value: "hinge_discriminator", label: "HINGE", color: "#14B8A6", definition: "The candidate answers were reasonable, but the decisive discriminator was missed or underweighted.", fix: "Ask which single finding is hardest for the selected answer to explain." },
-  { code: "P6", value: "timeline_course", label: "TIMELINE", color: "#6366F1", definition: "The timing, onset, duration, progression, event order, or treatment exposure determined the answer.", fix: "Convert the stem into: trigger → interval → presentation." },
-  { code: "P7", value: "modifier_constraint", label: "MODIFIER", color: "#22C55E", definition: "Knew the usual rule but failed to adjust it for a patient-specific constraint or context.", fix: "State: Normally X; because of modifier Y, choose Z." }
+  { code: "P1", value: "task_target", label: "TASK", color: "#245df1", definition: "Solved a different question from the one NBME asked.", fix: "Translate the final question into a 2–4 word command before evaluating options." },
+  { code: "P2", value: "stability_urgency", label: "STABILITY", color: "#c52f15", definition: "Failed to classify instability, acuity, or an immediate threat before choosing the pathway.", fix: "Ask whether an immediate threat overrides the normal diagnostic or management pathway." },
+  { code: "P3", value: "sequence_nbs", label: "SEQUENCE", color: "#bb881a", definition: "Recognized the clinical problem but selected the wrong stage of diagnosis or management.", fix: "Locate the current node: stabilize → evaluate → confirm → treat → escalate → definitive management." },
+  { code: "P4", value: "frame_assumption", label: "FRAME", color: "#9840b7", definition: "Built the wrong illness script or added an unsupported assumption before comparing choices.", fix: "Restate the case neutrally using only supplied facts; require a real contradiction before rejecting an option." },
+  { code: "P5", value: "hinge_discriminator", label: "HINGE", color: "#179fd4", definition: "The candidate answers were reasonable, but the decisive discriminator was missed or underweighted.", fix: "Ask which single finding is hardest for the selected answer to explain." },
+  { code: "P6", value: "timeline_course", label: "TIMELINE", color: "#f53d97", definition: "The timing, onset, duration, progression, event order, or treatment exposure determined the answer.", fix: "Convert the stem into: trigger → interval → presentation." },
+  { code: "P7", value: "modifier_constraint", label: "MODIFIER", color: "#037c58", definition: "Knew the usual rule but failed to adjust it for a patient-specific constraint or context.", fix: "State: Normally X; because of modifier Y, choose Z." }
 ];
 
 const SPEED_FLAGS = [
