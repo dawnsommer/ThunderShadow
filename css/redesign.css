@@ -594,7 +594,9 @@ html[data-theme="light"] .option-row.is-selected .option-row__index { color: #ff
   transition: border-color .12s var(--ease);
 }
 #manualRuleInput:focus { border-color: var(--accent); outline: none; box-shadow: none; }
-.exam-item { border: 1px solid var(--line); border-radius: 8px; background: var(--surface-field); box-shadow: none; }
+.exam-item { flex: 0 1 112px; min-width: 78px; }
+.exam-item__input { border-color: var(--line); background: var(--surface-field); }
+.exam-item__input:focus { box-shadow: none; }
 .shortcut-hint { color: var(--muted-2); font-size: 11px; }
 .shortcut-hint kbd { border: 0; border-radius: 5px; color: var(--muted); background: var(--panel-soft); box-shadow: none; }
 .button--save { min-width: 132px; }
@@ -780,6 +782,6 @@ dialog::backdrop, .pattern-guide-dialog::backdrop { background: rgba(2, 6, 12, .
   html[data-ui-mode="desktop"] .logger-layout { grid-template-rows: auto minmax(0, 1fr); }
 }
 
-.exam-item { flex: 0 0 auto; }
 .speed-button { overflow-wrap: normal; word-break: normal; hyphens: none; }
 html[data-ui-mode="desktop"] .app-shell:is([data-scale="110"], [data-scale="115"], [data-scale="120"]) .speed-button kbd { display: none; }
+html[data-ui-mode="desktop"] .app-shell:is([data-scale="110"], [data-scale="115"], [data-scale="120"]) .speed-button { padding-inline: 9px; font-size: 11px; }
